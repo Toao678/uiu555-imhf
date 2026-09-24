@@ -400,7 +400,7 @@ const MIN_T         = 40;      // 【本次修改】最小预热期从 80 降为
 const ROLL_W        = 30;
 const N_LEARNERS    = 30;
 const MAX_RECORDS   = 10000;
-const POLL_MS       = 30000;
+const POLL_MS       = 2000;
 const PRED_STORE_MAX = 3000;
 
 const $ = id => document.getElementById(id);
@@ -1457,7 +1457,7 @@ function renderFreq(records){
 
 /* ============================ G. 数据同步与轮询 ============================ */
 
-const API_URL = 'https://pc28.help/api/kj.json?nbr=80';
+const API_URL = 'https://pc28.help/api/kj.json?nbr=100';
 
 let _pollTimer = null;
 let _refreshing = false;
