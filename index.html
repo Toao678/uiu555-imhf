@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PC28 实时预测系统 v13（双阶段淘汰）</title>
+<title>PC28 实时预测系统 v13</title>
 <style>
 /* ============================================================
    全局样式（明亮主题 · 紧凑布局）
@@ -16,7 +16,7 @@ body{
   padding:10px;min-height:100vh;
   -webkit-font-smoothing:antialiased;
 }
-.container{max-width:1020px;margin:0 auto;}
+.container{max-width:1000px;margin:0 auto;}
 
 /* ---------- 顶部状态栏 ---------- */
 .topbar{
@@ -70,6 +70,7 @@ tbody tr.miss:hover td{background:#fee2e2;}
 tbody tr.missB td{background:#eff6ff;}
 tbody tr.missB:hover td{background:#dbeafe;}
 tbody tr.pending td{background:#fffbeb;}
+tbody tr.pending:hover td{background:#fef3c7;}
 
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;}
 .num{font-weight:800;color:#d97706;font-family:ui-monospace,monospace;}
@@ -233,7 +234,7 @@ canvas{display:block;width:100%;}
     </div>
   </div>
 
-  <!-- ==================== 下一期预测 ==================== -->
+  <!-- ==================== 预测卡片 ==================== -->
   <div class="card">
     <h2>下一期预测 <span class="sub" id="predictPeriod">目标：—</span></h2>
 
@@ -242,7 +243,7 @@ canvas{display:block;width:100%;}
       <div class="predict-box planA">
         <div class="plan-title">
           <span>方案A · 买三杀一</span>
-          <span class="tag-mini">集成学习</span>
+          <span class="tag-mini">集成投票</span>
         </div>
         <div class="predict-line">
           <span class="label">杀</span>
@@ -281,7 +282,7 @@ canvas{display:block;width:100%;}
     </div>
   </div>
 
-  <!-- ==================== 命中率曲线 ==================== -->
+  <!-- ==================== 命中率图表 ==================== -->
   <div class="card">
     <h2>30 期滑动窗口命中率 <span class="sub">方案A 红 · 方案B 蓝 · 85% 参考线</span></h2>
     <div class="chart-wrap"><canvas id="chartHit"></canvas></div>
@@ -289,17 +290,17 @@ canvas{display:block;width:100%;}
 
   <!-- ==================== 最近 50 期明细 ==================== -->
   <div class="card">
-    <h2>最近 50 期预测明细 <span class="sub">预测列已冻结</span></h2>
+    <h2>最近 50 期预测明细 <span class="sub">预测杀组已冻结，不随开奖改变</span></h2>
     <div class="table-wrap" style="max-height:460px;">
       <table>
         <thead>
           <tr>
             <th>期号</th>
             <th>实际组合</th>
-            <th>方案A 预测杀组</th>
-            <th>方案A 命中</th>
-            <th>方案B 预测杀组</th>
-            <th>方案B 命中</th>
+            <th>方案A预测杀组</th>
+            <th>方案A是否命中</th>
+            <th>方案B预测杀组</th>
+            <th>方案B是否命中</th>
           </tr>
         </thead>
         <tbody id="detailBody">
@@ -331,26 +332,27 @@ canvas{display:block;width:100%;}
    模块划分：
      A. 基础常量与工具
      B. IndexedDB 记忆库模块（history + predictions）
-     C. 特征计算（严格只用 cutoff 之前的数据）
-     D. 基学习器与集成投票（方案A / 方案B 双阶段淘汰）
-     E. Walk-forward 主流程
-     F. UI 渲染
-     G. 数据同步与轮询
+     C. 特征计算（严格 cutoffIndex，只用 [0..t-1]）
+     D. 基学习器与集成决策（含双阶段淘汰）
+     E. Walk-forward 主循环与预测快照
+     F. UI 渲染模块
+     G. 数据同步与轮询模块
      H. 启动流程
    ================================================================================== */
 
 /* ============================ A. 基础常量与工具 ============================ */
 
-const GROUPS      = ['小单', '小双', '大单', '大双'];
-const GROUP_IDX   = { '小单': 0, '小双': 1, '大单': 2, '大双': 3 };
+const GROUPS       = ['小单', '小双', '大单', '大双'];
+const GROUP_IDX    = { '小单': 0, '小双': 1, '大单': 2, '大双': 3 };
 const GROUP_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
 
-/** 和值计数（3 个 0~9 数字之和为 s 的方案数，总和 1000） */
+/** 和值计数 */
 const SUM_COUNTS = [
   1,3,6,10,15,21,28,36,45,55,63,69,73,75,
   75,73,69,63,55,45,36,28,21,15,10,6,3,1
 ];
 
+/** 和值 → 组合 */
 function groupOf(sum){
   if (sum < 0 || sum > 27) return -1;
   const isBig = sum >= 14;
@@ -361,12 +363,14 @@ function groupOf(sum){
   return 3;
 }
 
+/** 理论概率 */
 const THEORY = (function(){
   const c = [0,0,0,0];
   for (let s = 0; s <= 27; s++) c[groupOf(s)] += SUM_COUNTS[s];
   return c.map(v => v / 1000);
 })();
 
+/** 7 个和值区间 */
 const SUM_BINS = [[0,3],[4,7],[8,11],[12,15],[16,19],[20,23],[24,27]];
 const BIN_COVER = [
   [2,2,2,1,0,0,0],
@@ -377,62 +381,79 @@ const BIN_COVER = [
 
 /** 系统常量 */
 const MODEL_VERSION = 'v13';
-const WARMUP        = 30;      // 预热期：前 30 期只做特征累积
-const ROLL_W        = 30;      // 滑动窗口
-const N_LEARNERS    = 30;
+const MIN_T         = 40;      // 最小预热期
+const ROLL_W        = 30;      // 滑动窗口长度
+const N_LEARNERS    = 30;      // 基学习器数量
+const EMA_ALPHA     = 0.1;     // 保留常量（当前使用硬命中率^4，未使用 EMA）
 const MAX_RECORDS   = 10000;
 const POLL_MS       = 30000;
-const PRED_STORE_MAX = 3000;   // predictions 表最大条数
+const PRED_STORE_MAX = 5000;
 
+/** DOM */
 const $ = id => document.getElementById(id);
 
+/** HTML 转义 */
 function esc(s){
   return String(s).replace(/[&<>"']/g, ch =>
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 }
 
+/** 百分比 */
 function pct(v, d){ return (v * 100).toFixed(d === undefined ? 2 : d) + '%'; }
 
-/** 确定性伪随机（mulberry32） */
+/** 带种子随机数 */
 function makeRNG(seed){
   let s = seed >>> 0;
   return function(){
-    s = (s + 0x6D2B79F5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s / 0x7fffffff;
   };
 }
 
 /* ============================ B. IndexedDB 记忆库模块 ============================ */
 
 const DB_NAME           = 'PC28PredictorDB';
-const DB_VERSION        = 2;
+const DB_VERSION        = 3;
 const STORE_HISTORY     = 'history';
 const STORE_PREDICTIONS = 'predictions';
 
 let _db = null;
 
-/** 打开/创建数据库（自适应已有版本） */
+/** 探测已有数据库版本（避免 VersionError） */
+function detectExistingVersion(){
+  return new Promise((resolve) => {
+    try {
+      if (indexedDB.databases){
+        indexedDB.databases().then(dbs => {
+          const found = dbs.find(d => d.name === DB_NAME);
+          resolve(found ? found.version : null);
+        }).catch(() => resolve(null));
+        return;
+      }
+      const req = indexedDB.open(DB_NAME);
+      let resolved = false;
+      req.onsuccess = (e) => {
+        const v = e.target.result.version;
+        e.target.result.close();
+        if (!resolved){ resolved = true; resolve(v); }
+      };
+      req.onerror = () => { if (!resolved){ resolved = true; resolve(null); } };
+      req.onupgradeneeded = (e) => {
+        e.target.result.close();
+        if (!resolved){ resolved = true; resolve(1); }
+      };
+    } catch (e){ resolve(null); }
+  });
+}
+
+/** 打开数据库（兼容任意历史版本） */
 function openDB(){
   return new Promise((resolve, reject) => {
     if (_db){ resolve(_db); return; }
-
-    // 先探测已有版本
-    const detect = () => {
-      if (indexedDB.databases){
-        return indexedDB.databases().then(dbs => {
-          const f = dbs.find(d => d.name === DB_NAME);
-          return f ? f.version : null;
-        }).catch(() => null);
-      }
-      return Promise.resolve(null);
-    };
-
-    detect().then(existing => {
-      const target = (existing && existing > DB_VERSION) ? existing : DB_VERSION;
-      const req = indexedDB.open(DB_NAME, target);
-
+    detectExistingVersion().then(existingVersion => {
+      const targetVersion = (existingVersion && existingVersion > DB_VERSION)
+        ? existingVersion : DB_VERSION;
+      const req = indexedDB.open(DB_NAME, targetVersion);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains(STORE_HISTORY)){
@@ -443,16 +464,26 @@ function openDB(){
           db.createObjectStore(STORE_PREDICTIONS, { keyPath: 'nbr' });
         }
       };
-
       req.onsuccess = (e) => {
         _db = e.target.result;
         console.log(`[DB] 数据库已打开（版本 ${_db.version}）`);
         resolve(_db);
       };
       req.onerror = (e) => reject(e.target.error);
+      req.onblocked = () => console.warn('[DB] 有其他标签页占用，请关闭后刷新');
     }).catch(reject);
   });
 }
+
+/** 应急删库（控制台执行 resetDB()） */
+window.resetDB = function(){
+  if (_db){ _db.close(); _db = null; }
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => { console.log('[DB] 已删除'); resolve(); };
+    req.onerror = (e) => reject(e.target.error);
+  });
+};
 
 /* ---------- history 操作 ---------- */
 
@@ -534,7 +565,6 @@ function trimHistory(maxCount){
 }
 
 /* ---------- predictions 操作 ---------- */
-/* 【关键】主键重复时跳过，不覆盖 → 保证历史预测快照永久冻结 */
 
 function getAllPredictions(){
   return openDB().then(db => new Promise((resolve, reject) => {
@@ -553,6 +583,7 @@ function getAllPredictions(){
   }));
 }
 
+/** 【关键】写入预测快照，主键重复则跳过（绝不覆盖） */
 function putManyPredictions(preds){
   if (!preds || preds.length === 0) return Promise.resolve(0);
   return openDB().then(db => new Promise((resolve, reject) => {
@@ -601,10 +632,7 @@ function trimPredictions(maxCount){
 
 function clearAll(){
   return openDB().then(db => new Promise((resolve, reject) => {
-    const tx = db.transaction(
-      [STORE_HISTORY, STORE_PREDICTIONS],
-      'readwrite'
-    );
+    const tx = db.transaction([STORE_HISTORY, STORE_PREDICTIONS], 'readwrite');
     tx.objectStore(STORE_HISTORY).clear();
     tx.objectStore(STORE_PREDICTIONS).clear();
     tx.oncomplete = () => resolve();
@@ -615,11 +643,18 @@ function clearAll(){
 /* ============================ C. 特征计算 ============================ */
 
 /**
- * 计算第 t 期的 4×6 特征矩阵
- * 【强制】只用 records[0..t-1] 的数据，不看第 t 期
+ * 计算第 t 期的特征（严格只用 records[0..cutoffIdx-1]）
+ * @param {Array} records   历史记录（升序）
+ * @param {number} cutoffIdx 目标期索引
+ * @param {number} N         频率窗口
+ * @param {number} k         遗漏 Sigmoid 系数
+ * @param {number} mask      特征掩码
  */
-function computeFeatures(records, t, N, k, mask){
-  const n = t;   // 可用记录数 = t（严格 < t 索引越界）
+function computeFeaturesAt(records, cutoffIdx, N, k, mask){
+  const n = cutoffIdx;
+  if (n > records.length){
+    throw new Error(`computeFeaturesAt: cutoffIdx=${cutoffIdx} > records.length=${records.length}`);
+  }
 
   const F = [
     [0,0,0,0,0,0],
@@ -631,11 +666,12 @@ function computeFeatures(records, t, N, k, mask){
   const groups = new Array(n);
   const sums   = new Array(n);
   for (let i = 0; i < n; i++){
-    groups[i] = GROUP_IDX[records[i].combination] ?? 0;
-    sums[i]   = records[i].num;
+    groups[i] = GROUP_IDX[records[i].combination];
+    if (groups[i] === undefined) groups[i] = 0;
+    sums[i] = records[i].num;
   }
 
-  // f1 近 N 期频率偏离
+  // f1：近 N 期频率偏离
   if (mask & 1){
     const w = Math.min(N, n);
     if (w > 0){
@@ -645,7 +681,7 @@ function computeFeatures(records, t, N, k, mask){
     }
   }
 
-  // f2 近 20 期频率偏离
+  // f2：近 20 期频率偏离
   if (mask & 2){
     const w = Math.min(20, n);
     if (w > 0){
@@ -655,7 +691,7 @@ function computeFeatures(records, t, N, k, mask){
     }
   }
 
-  // f3 遗漏值 Sigmoid
+  // f3：遗漏值 Sigmoid
   if (mask & 4){
     for (let g = 0; g < 4; g++){
       let miss = n;
@@ -666,7 +702,7 @@ function computeFeatures(records, t, N, k, mask){
     }
   }
 
-  // f4 连庄强度（近 3 期）
+  // f4：连庄强度（近 3 期）
   if (mask & 8){
     if (n >= 3){
       const g1 = groups[n-3], g2 = groups[n-2], g3 = groups[n-1];
@@ -687,7 +723,7 @@ function computeFeatures(records, t, N, k, mask){
     }
   }
 
-  // f5 邻期转移概率
+  // f5：邻期转移概率（拉普拉斯平滑）
   if (mask & 16){
     if (n >= 1){
       const lastG = groups[n-1];
@@ -705,7 +741,7 @@ function computeFeatures(records, t, N, k, mask){
     }
   }
 
-  // f6 和值区间热度（近 10 期）
+  // f6：和值区间热度（近 10 期）
   if (mask & 32){
     const w = Math.min(10, n);
     if (w > 0){
@@ -731,9 +767,9 @@ function computeFeatures(records, t, N, k, mask){
   return F;
 }
 
-/* ============================ D. 基学习器与集成投票 ============================ */
+/* ============================ D. 基学习器与集成决策 ============================ */
 
-/** 初始化 30 个基学习器（超参随机固定，确定性种子） */
+/** 初始化 30 个基学习器（超参随机固定） */
 function initLearners(seed){
   const N_VALS   = [5, 10, 15, 20, 30];
   const ETA_VALS = [0.05, 0.1, 0.2];
@@ -755,149 +791,164 @@ function initLearners(seed){
         [1,1,1,1,1,1],
         [1,1,1,1,1,1]
       ],
-      ha: [],   // 方案 A 命中历史（最近 30 期）
-      hb: []    // 方案 B 命中历史（最近 30 期）
+      // 近 30 期命中历史（方案 A：该学习器自己的 kill1 是否命中）
+      hits: []
     });
   }
   return learners;
 }
 
-/** 计算某个基学习器在第 t 期的 4 组合原始得分 */
-function baseScores(L, records, t){
-  const F = computeFeatures(records, t, L.N, L.k, L.mask);
-  const s = [0,0,0,0];
+/** 计算单个基学习器在第 t 期的 4 组合得分 */
+function computeBaseScores(L, records, t){
+  const feats = computeFeaturesAt(records, t, L.N, L.k, L.mask);
+  const scores = [0,0,0,0];
   for (let g = 0; g < 4; g++){
     for (let f = 0; f < 6; f++){
       if (!(L.mask & (1 << f))) continue;
-      s[g] += L.W[g][f] * F[g][f];
+      scores[g] += L.W[g][f] * feats[g][f];
     }
   }
-  return { F, s };
+  return { feats, scores };
 }
 
-/** 从命中历史算权重：w = 命中率^4 */
-function learnerWeight(hist){
-  if (!hist || hist.length === 0) return Math.pow(0.5, 4);
-  const r = hist.reduce((a,b) => a+b, 0) / hist.length;
-  return Math.pow(r, 4);
+/** 从一组分数中找 argmax */
+function argmax(arr){
+  let idx = 0;
+  for (let i = 1; i < arr.length; i++) if (arr[i] > arr[idx]) idx = i;
+  return idx;
 }
 
-/** 从一组分数算置信度（最大值与次大值的差距 / 均值绝对值） */
-function computeConfidence(vals){
-  if (!vals || vals.length < 2) return 0;
-  const sorted = vals.slice().sort((a,b) => b - a);
-  const total = vals.reduce((a,b) => a + Math.abs(b), 0);
+/** 置信度：基于得分间的区分度 */
+function computeConfidence(scores){
+  const sorted = scores.slice().sort((a,b) => b - a);
+  const total = scores.reduce((a,b) => a + Math.abs(b), 0);
   if (total < 1e-9) return 0;
   const gap = sorted[0] - sorted[1];
-  return Math.max(0, Math.min(1, gap / (total / vals.length + 0.01)));
+  return Math.max(0, Math.min(1, gap / (total / scores.length + 0.01)));
 }
 
 /**
- * 集成投票 —— 方案 A
- * 对 4 个组合：S_c = Σ wA_i · score_i,c，杀 argmax
+ * 更新单个基学习器的权重（用第 t 期的实际结果）
+ * 【严格】只使用第 t 期及之前的数据，不影响已经输出的第 t 期预测
  */
-function predictPlanA(learners, records, t){
-  const S = [0,0,0,0];
-  for (const L of learners){
-    const { s } = baseScores(L, records, t);
-    const w = learnerWeight(L.ha);
-    for (let g = 0; g < 4; g++) S[g] += w * s[g];
+function updateLearner(L, records, t, actualG){
+  const { feats, scores } = computeBaseScores(L, records, t);
+
+  // 该学习器自己的方案 A 杀组
+  const kill1_L = argmax(scores);
+  const hit1 = (actualG !== kill1_L) ? 1 : 0;
+
+  // 记录近 30 期命中历史
+  L.hits.push(hit1);
+  if (L.hits.length > 30) L.hits.shift();
+
+  // 在线感知机权重更新（仅当该学习器自己的方案 A 杀错）
+  if (!hit1){
+    for (let f = 0; f < 6; f++){
+      if (!(L.mask & (1 << f))) continue;
+      const killVal = feats[kill1_L][f];
+      let sumO = 0;
+      for (let g = 0; g < 4; g++) if (g !== kill1_L) sumO += feats[g][f];
+      if (killVal > sumO / 3){
+        L.W[kill1_L][f] -= L.eta;
+        if (L.W[kill1_L][f] < 0.1) L.W[kill1_L][f] = 0.1;
+      }
+    }
   }
-  let K = 0;
-  for (let g = 1; g < 4; g++) if (S[g] > S[K]) K = g;
-  return { K, S };
 }
 
 /**
- * 集成投票 —— 方案 B（双阶段淘汰法）
- * 阶段 1：同方案 A → 得到 K1
- * 阶段 2：剔除 K1，对剩余 3 组合重新跑加权投票（每基得分归一化到 3 组合和为 1）
- *         再取加权和 → 得到 K2
+ * 集成决策（双阶段淘汰）
+ *
+ * 第一阶段：加权投票选出 K1（方案 A 杀组）
+ * 第二阶段：剔除 K1，对剩余 3 个组合重新计算得分（票数归一化），选出 K2
+ * 最终杀组：K1 + K2
  */
-function predictPlanB(learners, records, t, K1){
-  const remain = [0,1,2,3].filter(g => g !== K1);
-  const S2 = [0,0,0,0];   // 只填 remain 中的索引
+function ensembleDecision(learners, records, t){
+  // 收集每个学习器的 baseScores 与权重
+  const baseScores = [];
+  const weights = [];
 
   for (const L of learners){
-    const { s } = baseScores(L, records, t);
+    const { scores } = computeBaseScores(L, records, t);
+    baseScores.push(scores);
 
-    // 对剩余 3 组合归一化
-    let sum3 = 0;
-    for (const g of remain) sum3 += s[g];
-    if (sum3 <= 1e-9) sum3 = 1;
+    // 命中率（不足样本用 0.5 等权）
+    const hitRate = L.hits.length > 0
+      ? L.hits.reduce((a,b) => a+b, 0) / L.hits.length
+      : 0.5;
+    // 权重 = (命中率)^4
+    weights.push(Math.pow(hitRate, 4));
+  }
 
-    const w = learnerWeight(L.hb);
-    for (const g of remain){
-      S2[g] += w * (s[g] / sum3);
+  /* ---------- 第一阶段：完整加权投票 ---------- */
+  const S1 = [0, 0, 0, 0];
+  for (let i = 0; i < learners.length; i++){
+    const w = weights[i];
+    for (let g = 0; g < 4; g++){
+      S1[g] += w * baseScores[i][g];
+    }
+  }
+  const K1 = argmax(S1);
+
+  /* ---------- 第二阶段：剔除 K1，剩余 3 个重新计算 ---------- */
+  const remaining = [0, 1, 2, 3].filter(g => g !== K1);
+  const S2 = [0, 0, 0, 0];
+
+  for (let i = 0; i < learners.length; i++){
+    const w = weights[i];
+    // 在剩余 3 个组合中归一化得分（票数归一化）
+    let sumRemaining = 0;
+    for (const g of remaining) sumRemaining += baseScores[i][g];
+
+    if (sumRemaining > 0){
+      for (const g of remaining){
+        S2[g] += w * (baseScores[i][g] / sumRemaining);
+      }
     }
   }
 
-  let K2 = remain[0];
-  for (const g of remain){
+  // 在剩余 3 个中找最大
+  let K2 = remaining[0];
+  for (const g of remaining){
     if (S2[g] > S2[K2]) K2 = g;
   }
-  return { K2, S2 };
+
+  /* ---------- 置信度 ---------- */
+  const confA = computeConfidence(S1);
+
+  // 方案 B 置信度：K1 在 S1 中的区分度 + K2 在 S2 中的区分度，取平均
+  const confB1 = computeConfidence(S1);
+  const s2Remaining = remaining.map(g => S2[g]);
+  const confB2 = computeConfidence(s2Remaining);
+  const confB = (confB1 + confB2) / 2;
+
+  return {
+    S1,
+    S2,
+    kill1: K1,
+    kill2: K2,
+    kill2_pair: [K1, K2],
+    baseScores,
+    weights,
+    confA,
+    confB
+  };
 }
 
-/** 对单个基学习器做在线更新（用第 t 期实际结果） */
-function updateLearner(L, records, t, actualG){
-  const { F, s } = baseScores(L, records, t);
+/* ============================ E. Walk-forward 主循环与快照 ============================ */
 
-  // 该基自己的一阶段杀组
-  let k1 = 0;
-  for (let g = 1; g < 4; g++) if (s[g] > s[k1]) k1 = g;
-
-  // 该基自己的二阶段杀组：剔除 k1，对剩余三个重新归一化
-  const remain = [0,1,2,3].filter(g => g !== k1);
-  let sum3 = 0;
-  for (const g of remain) sum3 += s[g];
-  if (sum3 <= 1e-9) sum3 = 1;
-  let k2 = remain[0];
-  for (const g of remain){
-    if (s[g] / sum3 > s[k2] / sum3) k2 = g;
+/** 计算数据窗口哈希（用于校验快照对应同一份数据） */
+function hashWindow(records, t){
+  const last = records.slice(Math.max(0, t - 10), t).map(r => r.nbr).join('|');
+  let h = 0;
+  for (let i = 0; i < last.length; i++){
+    h = (h * 31 + last.charCodeAt(i)) | 0;
   }
-
-  const hitA = actualG !== k1 ? 1 : 0;
-  const hitB = (actualG !== k1 && actualG !== k2) ? 1 : 0;
-
-  // 记录最近 30 期命中
-  L.ha.push(hitA);
-  if (L.ha.length > 30) L.ha.shift();
-  L.hb.push(hitB);
-  if (L.hb.length > 30) L.hb.shift();
-
-  // 感知机在线更新：只惩罚"误导判别"的特征
-  // 方案 A 杀错 → 惩罚 k1
-  if (!hitA){
-    for (let f = 0; f < 6; f++){
-      if (!(L.mask & (1 << f))) continue;
-      const killVal = F[k1][f];
-      let sumO = 0;
-      for (let g = 0; g < 4; g++) if (g !== k1) sumO += F[g][f];
-      if (killVal > sumO / 3){
-        L.W[k1][f] -= L.eta;
-        if (L.W[k1][f] < 0.1) L.W[k1][f] = 0.1;
-      }
-    }
-  }
-  // 方案 B 杀错 → 惩罚 k2
-  if (!hitB){
-    for (let f = 0; f < 6; f++){
-      if (!(L.mask & (1 << f))) continue;
-      const killVal = F[k2][f];
-      let sumO = 0;
-      for (let g = 0; g < 4; g++) if (g !== k2) sumO += F[g][f];
-      if (killVal > sumO / 3){
-        L.W[k2][f] -= L.eta;
-        if (L.W[k2][f] < 0.1) L.W[k2][f] = 0.1;
-      }
-    }
-  }
+  return h.toString(16);
 }
 
-/* ============================ E. Walk-forward 主流程 ============================ */
-
-/** 从最后一期推导下一期号 */
+/** 从最后一期期号推导下一期 */
 function nextNbrFrom(lastNbr){
   const num = Number(lastNbr);
   if (isNaN(num)) return String(lastNbr) + '+1';
@@ -905,17 +956,47 @@ function nextNbrFrom(lastNbr){
 }
 
 /**
+ * 生成第 t 期的预测快照（严格只用 [0..t-1] 数据）
+ */
+function computePrediction(records, t, learners){
+  const targetNbr = (t < records.length)
+    ? String(records[t].nbr)
+    : nextNbrFrom(records[records.length - 1].nbr);
+
+  const decision = ensembleDecision(learners, records, t);
+
+  return {
+    nbr: targetNbr,
+    predictTime: Date.now(),
+    windowDataHash: hashWindow(records, t),
+    kill1: decision.kill1,
+    kill2: decision.kill2,
+    kill2_pair: decision.kill2_pair,
+    kill2_names: decision.kill2_pair.map(g => GROUPS[g]),
+    S1: decision.S1.slice(),
+    S2: decision.S2.slice(),
+    confA: decision.confA,
+    confB: decision.confB,
+    modelVersion: MODEL_VERSION,
+    // 以下字段开奖后回填，绝不修改上面的预测列
+    actualCombination: null,
+    hitA: null,
+    hitB: null
+  };
+}
+
+/**
  * Walk-forward 主流程
- * 对 t ∈ [WARMUP, records.length]：
- *   1. 先查 predictions 快照：存在则用（冻结），不存在则计算并收集
- *   2. 若 t 是历史期 → 用实际结果更新所有基学习器，并记录命中
- *   3. 若 t 是未来期（= records.length）→ 作为 nextPred 返回
  *
- * 【强制】快照一旦写入就不再修改，保证"预测杀组"列冻结
+ * 【关键保证】
+ *   1. 每期预测：先查快照，存在则直接用；不存在则计算并加入待写入队列
+ *   2. 学习器更新：用第 t 期实际结果更新，只影响 t 之后的预测
+ *   3. 命中判定：用第 t 期实际结果判定，只回写 hitA / hitB / actualCombination
+ *   4. 预测快照的 kill1 / kill2 / S1 / S2 / confA / confB 永不被修改
  */
 function walkForward(records, predsByNbr){
-  if (records.length < WARMUP + 1){
-    console.log(`[WalkForward] 数据不足 ${WARMUP + 1} 期（当前 ${records.length}）`);
+  if (records.length < MIN_T){
+    console.log(`[WalkForward] 数据不足 ${MIN_T} 期（当前 ${records.length}）`);
     return { results: [], nextPred: null, newPreds: [] };
   }
 
@@ -923,71 +1004,58 @@ function walkForward(records, predsByNbr){
   const results = [];
   const newPreds = [];
 
-  for (let t = WARMUP; t <= records.length; t++){
+  for (let t = MIN_T; t <= records.length; t++){
     const isFuture = (t === records.length);
     const targetNbr = isFuture
       ? nextNbrFrom(records[records.length - 1].nbr)
       : String(records[t].nbr);
 
-    // ---- 1. 查/生成快照 ----
+    // ---- 1. 查快照 ----
     let pred = predsByNbr.get(targetNbr);
 
     if (!pred){
-      const { K: K1, S: S1 } = predictPlanA(learners, records, t);
-      const { K2, S2 } = predictPlanB(learners, records, t, K1);
-
-      pred = {
-        nbr:        targetNbr,
-        killA:      K1,
-        killB1:     K1,
-        killB2:     K2,
-        confA:      computeConfidence(S1),
-        confB:      computeConfidence([S2[0],S2[1],S2[2],S2[3]]),
-        createdAt:  Date.now(),
-        modelVersion: MODEL_VERSION
-      };
+      // ---- 2. 不存在则计算并收集待写入 ----
+      pred = computePrediction(records, t, learners);
       newPreds.push(pred);
       predsByNbr.set(targetNbr, pred);
     }
 
-    if (isFuture) continue;
+    // ---- 3. 未来期：只生成预测，不更新学习器 ----
+    if (isFuture){
+      continue;
+    }
 
-    // ---- 2. 用实际结果更新所有基学习器 ----
+    // ---- 4. 用第 t 期实际结果更新所有学习器 ----
     const actualG = GROUP_IDX[records[t].combination];
     if (actualG === undefined){
       console.warn(`[WalkForward] 第 ${t} 期组合无法识别:`, records[t].combination);
       continue;
     }
+
     for (const L of learners){
       updateLearner(L, records, t, actualG);
     }
 
-    // ---- 3. 记录结果（预测字段直接用快照） ----
-    results.push({
-      nbr:       targetNbr,
-      actual:    records[t].combination,
-      actualG:   actualG,
-      killA:     pred.killA,
-      killB1:    pred.killB1,
-      killB2:    pred.killB2,
-      confA:     pred.confA,
-      confB:     pred.confB,
-      hitA:      actualG !== pred.killA ? 1 : 0,
-      hitB:      (actualG !== pred.killB1 && actualG !== pred.killB2) ? 1 : 0
-    });
+    // ---- 5. 命中判定（只回写，不修改预测列） ----
+    if (pred.actualCombination === null){
+      pred.actualCombination = records[t].combination;
+      // 方案 A：实际组合 ≠ 预测杀组 K1
+      pred.hitA = (actualG !== pred.kill1) ? 1 : 0;
+      // 方案 B：实际组合 ∉ 预测杀组对 {K1, K2}
+      pred.hitB = (actualG !== pred.kill1 && actualG !== pred.kill2) ? 1 : 0;
+    }
+
+    results.push(pred);
   }
 
+  // 提取下一期预测
   const futureNbr = nextNbrFrom(records[records.length - 1].nbr);
   const nextPred = predsByNbr.get(futureNbr) || null;
 
   return { results, nextPred, newPreds };
 }
 
-/* ============================ F. UI 渲染 ============================ */
-
-let _cachedHistory = [];
-let _cachedResults = [];
-let _cachedNextPred = null;
+/* ============================ F. UI 渲染模块 ============================ */
 
 function updateTopbar(memCount){
   $('memCount').textContent = memCount;
@@ -1049,13 +1117,13 @@ function renderPredict(nextPred){
   $('predictPeriod').textContent = `目标：第 ${nextPred.nbr} 期`;
 
   // 方案 A
-  const aKill = nextPred.killA;
+  const aKill = nextPred.kill1;
   $('planAKill').textContent = GROUPS[aKill];
   $('planABuy').innerHTML = [0,1,2,3].filter(g => g !== aKill)
     .map(g => `<span>${GROUPS[g]}</span>`).join('');
 
   // 方案 B
-  const bKill = [nextPred.killB1, nextPred.killB2];
+  const bKill = nextPred.kill2_pair;
   $('planBKill').textContent = `${GROUPS[bKill[0]]} + ${GROUPS[bKill[1]]}`;
   $('planBBuy').innerHTML = [0,1,2,3].filter(g => !bKill.includes(g))
     .map(g => `<span>${GROUPS[g]}</span>`).join('');
@@ -1069,7 +1137,7 @@ function renderPredict(nextPred){
   $('confBarB').style.width = Math.max(0, Math.min(100, nextPred.confB * 100)) + '%';
 }
 
-/** 30 期滑动窗口命中率双曲线 */
+/** 双曲线命中率图 */
 function drawDualChart(canvas, results){
   const dpr = window.devicePixelRatio || 1;
   const cssW = Math.max(360, canvas.parentElement.clientWidth - 14);
@@ -1165,7 +1233,7 @@ function drawDualChart(canvas, results){
   ctx.textBaseline = 'bottom';
   ctx.fillText('85%', pad.l + 4, y85 - 2);
 
-  // 方案 A（红粗线）
+  // 方案 A（红）
   ctx.beginPath();
   winA.forEach((v, i) => {
     const x = xToPx(i), y = yToPx(v);
@@ -1177,7 +1245,7 @@ function drawDualChart(canvas, results){
   ctx.lineCap  = 'round';
   ctx.stroke();
 
-  // 方案 B（蓝细线）
+  // 方案 B（蓝）
   ctx.beginPath();
   winB.forEach((v, i) => {
     const x = xToPx(i), y = yToPx(v);
@@ -1220,7 +1288,7 @@ function drawDualChart(canvas, results){
   ctx.fillStyle = '#2563eb';
   ctx.fillText('方案B 买二杀二', lx + 22, ly + 22);
 
-  // 右下统计
+  // 统计
   const lastA = winA[winA.length - 1];
   const lastB = winB[winB.length - 1];
   const minA = Math.min(...winA);
@@ -1246,9 +1314,8 @@ function drawDualChart(canvas, results){
 }
 
 /**
- * 最近 50 期明细表
- * 【关键】"方案A 预测杀组" / "方案B 预测杀组" 两列直接来自 results，
- *         而 results 的预测字段取自 predictions 快照，永不被覆盖
+ * 明细表
+ * 【关键】预测杀组从快照读取，开奖后不再改变
  */
 function renderDetail(results){
   const body = $('detailBody');
@@ -1257,44 +1324,56 @@ function renderDetail(results){
     return;
   }
 
-  // 按期号降序（最新在上），取最近 50 条
+  // 按目标期号降序，取最近 50 条
   const sorted = results.slice().sort((a, b) => Number(b.nbr) - Number(a.nbr));
   const rows = sorted.slice(0, 50);
 
   body.innerHTML = rows.map(r => {
     // 实际组合
-    const actualG = r.actualG;
-    const actualTag = (actualG !== undefined && actualG >= 0)
-      ? `<span class="tag g${actualG}">${esc(r.actual)}</span>`
-      : '<span class="result-pending">—</span>';
+    let actualHtml;
+    if (!r.actualCombination){
+      actualHtml = '<span class="result-pending">等待开奖</span>';
+    } else {
+      const g = GROUP_IDX[r.actualCombination];
+      actualHtml = `<span class="tag g${g}">${esc(r.actualCombination)}</span>`;
+    }
 
-    // 方案 A 预测杀组（来自快照，不随开奖改变）
-    const killAHtml = `<span class="tag g${r.killA}">${GROUPS[r.killA]}</span>`;
+    // 方案 A 预测杀组（来自快照，固定）
+    const killAHtml = `<span class="tag g${r.kill1}">${GROUPS[r.kill1]}</span>`;
 
-    // 方案 A 命中
-    const hitAHtml = r.hitA === 1
-      ? '<span class="result-ok">✓</span>'
-      : '<span class="result-fail">✗</span>';
+    // 方案 A 是否命中
+    let hitAHtml;
+    if (r.hitA === null || r.hitA === undefined){
+      hitAHtml = '<span class="result-pending">—</span>';
+    } else if (r.hitA === 1){
+      hitAHtml = '<span class="result-ok">✓</span>';
+    } else {
+      hitAHtml = '<span class="result-fail">✗</span>';
+    }
 
-    // 方案 B 预测杀组（两个，来自快照）
-    const killBHtml =
-      `<span class="tag g${r.killB1}">${GROUPS[r.killB1]}</span>` +
-      `<span class="tag g${r.killB2}">${GROUPS[r.killB2]}</span>`;
+    // 方案 B 预测杀组（两个，固定）
+    const killBHtml = r.kill2_pair.map(g =>
+      `<span class="tag g${g}">${GROUPS[g]}</span>`).join('');
 
-    // 方案 B 命中
-    const hitBHtml = r.hitB === 1
-      ? '<span class="result-ok">✓</span>'
-      : '<span class="result-fail">✗</span>';
+    // 方案 B 是否命中
+    let hitBHtml;
+    if (r.hitB === null || r.hitB === undefined){
+      hitBHtml = '<span class="result-pending">—</span>';
+    } else if (r.hitB === 1){
+      hitBHtml = '<span class="result-ok">✓</span>';
+    } else {
+      hitBHtml = '<span class="result-fail">✗</span>';
+    }
 
-    // 行背景
+    // 行背景：A 未中红，仅 B 未中浅蓝
     let rowCls = '';
-    if (r.hitA === 0 && r.hitB === 0) rowCls = 'class="miss"';
-    else if (r.hitA === 0) rowCls = 'class="miss"';
-    else if (r.hitB === 0) rowCls = 'class="missB"';
+    if (r.hitA === 0) rowCls = 'miss';
+    else if (r.hitB === 0) rowCls = 'missB';
+    else if (!r.actualCombination) rowCls = 'pending';
 
-    return `<tr ${rowCls}>
+    return `<tr class="${rowCls}">
       <td class="mono">${esc(r.nbr)}</td>
-      <td>${actualTag}</td>
+      <td>${actualHtml}</td>
       <td>${killAHtml}</td>
       <td>${hitAHtml}</td>
       <td>${killBHtml}</td>
@@ -1327,12 +1406,15 @@ function renderFreq(records){
     </div>`;
 }
 
-/* ============================ G. 数据同步与轮询 ============================ */
+/* ============================ G. 数据同步与轮询模块 ============================ */
 
 const API_URL = 'https://pc28.help/api/kj.json?nbr=80';
 
 let _pollTimer = null;
 let _refreshing = false;
+let _cachedHistory = [];
+let _currentResults = [];
+let _currentNextPred = null;
 
 /** 从接口获取数据（自动 reverse 成升序） */
 function fetchFromAPI(){
@@ -1345,6 +1427,7 @@ function fetchFromAPI(){
       if (!json || !Array.isArray(json.data)){
         throw new Error('接口返回格式异常');
       }
+      // 【关键】data 按期号降序 → reverse 成升序
       const records = json.data.slice().reverse().map(item => ({
         nbr:         String(item.nbr || ''),
         date:        String(item.date || ''),
@@ -1357,7 +1440,14 @@ function fetchFromAPI(){
     });
 }
 
-/** 核心刷新：读历史 → 读快照 → walk-forward → 渲染 */
+/**
+ * 核心刷新流程
+ *   1. 读取本地历史
+ *   2. 读取已有预测快照
+ *   3. walk-forward 补全缺失快照 + 更新学习器
+ *   4. 新快照入库
+ *   5. 渲染
+ */
 async function refresh(){
   if (_refreshing) return;
   _refreshing = true;
@@ -1375,27 +1465,28 @@ async function refresh(){
     }
 
     // 读取已有预测快照
-    const preds = await getAllPredictions();
-    const predsByNbr = new Map(preds.map(p => [String(p.nbr), p]));
+    const predsList = await getAllPredictions();
+    const predsByNbr = new Map(predsList.map(p => [String(p.nbr), p]));
 
     // walk-forward
     const { results, nextPred, newPreds } = walkForward(_cachedHistory, predsByNbr);
 
-    // 新快照入库（主键重复自动跳过，绝不覆盖）
+    // 新快照入库（主键重复则跳过）
     if (newPreds.length > 0){
       const added = await putManyPredictions(newPreds);
       console.log(`[Refresh] 新增 ${added} 条预测快照`);
       await trimPredictions(PRED_STORE_MAX);
     }
 
-    _cachedResults = results;
-    _cachedNextPred = nextPred;
+    _currentResults = results;
+    _currentNextPred = nextPred;
 
     // 渲染
     renderLatest(_cachedHistory);
     renderPredict(nextPred);
     renderDetail(results);
     renderFreq(_cachedHistory);
+
     requestAnimationFrame(() => drawDualChart($('chartHit'), results));
 
   } catch (err){
@@ -1427,10 +1518,12 @@ async function syncAndPredict(){
   }
 }
 
+/** 启动轮询 */
 function startPolling(){
   if (_pollTimer) clearInterval(_pollTimer);
   _pollTimer = setInterval(() => { syncAndPredict(); }, POLL_MS);
 
+  // 页面恢复可见时立即同步
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible'){
       console.log('[Poll] 页面恢复可见，立即同步');
@@ -1446,8 +1539,8 @@ function startPolling(){
 async function init(){
   console.log('%cPC28 实时预测系统 v13（双阶段淘汰）',
               'color:#2563eb;font-size:15px;font-weight:700;');
-  console.log(`模型版本：${MODEL_VERSION}`);
-  console.log(`预热期：${WARMUP} 期`);
+  console.log(`模型版本：${MODEL_VERSION} · 预热期：${MIN_T} 期`);
+  console.log('正在初始化…');
 
   try {
     await openDB();
@@ -1471,7 +1564,7 @@ async function init(){
     await refresh();
     startPolling();
 
-    // 每秒更新时钟
+    // 每秒刷新时钟
     setInterval(() => {
       const now = new Date();
       const pad = n => String(n).padStart(2, '0');
@@ -1497,8 +1590,8 @@ $('clearBtn').addEventListener('click', async () => {
     console.log('[Clear] 本地数据已清除');
 
     _cachedHistory = [];
-    _cachedResults = [];
-    _cachedNextPred = null;
+    _currentResults = [];
+    _currentNextPred = null;
 
     try {
       const { records, countdown } = await fetchFromAPI();
@@ -1523,7 +1616,7 @@ let _resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(_resizeTimer);
   _resizeTimer = setTimeout(() => {
-    drawDualChart($('chartHit'), _cachedResults);
+    drawDualChart($('chartHit'), _currentResults);
   }, 200);
 });
 
@@ -1535,9 +1628,9 @@ console.log('%cPC28 实时预测系统 v13（双阶段淘汰）',
             'color:#2563eb;font-size:13px;font-weight:700;');
 console.log(`模型版本：${MODEL_VERSION}`);
 console.log('数据源：https://pc28.help/api/kj.json?nbr=80');
-console.log('存储：IndexedDB（history / predictions）');
-console.log('算法：30 基学习器集成 + 双阶段淘汰法');
-console.log('预测冻结：快照写入后不再修改，明细表"预测杀组"列恒定');
+console.log('存储：IndexedDB（history + predictions 双表）');
+console.log('算法：30 基学习器集成 + 双阶段淘汰（方案A杀1 / 方案B杀2）');
+console.log('预测固定：历史预测快照不可修改，开奖后只回写命中结果');
 </script>
 </body>
 </html>
