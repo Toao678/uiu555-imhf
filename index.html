@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC28 双轨预测系统 v14</title>
+<style>
+/* ============================================================
+   全局样式（明亮主题 · 紧凑布局）
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",
+              "Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  background:#eef4fb;color:#1e293b;font-size:13px;line-height:1.45;
+  padding:10px;min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+.container{max-width:1020px;margin:0 auto;}
+
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:8px;padding:10px 14px;background:#ffffff;
+  border-radius:10px;margin-bottom:10px;border:1px solid #dbe4ee;
+  box-shadow:0 1px 3px rgba(15,23,42,.05);
+}
+.topbar .title{font-size:15px;font-weight:700;color:#1e3a8a;letter-spacing:.3px;}
+.topbar .title small{font-size:11px;color:#64748b;font-weight:400;margin-left:6px;}
+.topbar .meta{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#64748b;align-items:center;}
+.topbar .meta b{color:#2563eb;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;}
+.topbar .meta .cd{color:#d97706;font-weight:700;font-family:ui-monospace,monospace;}
+.status-dot{
+  display:inline-block;width:7px;height:7px;border-radius:50%;
+  background:#22c55e;margin-right:4px;animation:pulse 1.6s infinite;
+  vertical-align:middle;
+}
+.status-dot.err{background:#ef4444;animation:none;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+.card{
+  background:#ffffff;border-radius:10px;padding:14px 16px;margin-bottom:10px;
+  border:1px solid #dbe4ee;box-shadow:0 1px 3px rgba(15,23,42,.05);
+}
+.card h2{
+  font-size:13px;font-weight:700;color:#1e293b;margin-bottom:10px;
+  padding-left:8px;border-left:3px solid #2563eb;line-height:1.3;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;
+}
+.card h2 .sub{font-size:11px;color:#94a3b8;font-weight:400;}
+
+.mode-switch{
+  display:inline-flex;background:#f1f5f9;border-radius:8px;
+  padding:2px;gap:2px;font-size:11.5px;
+}
+.mode-switch label{
+  padding:3px 10px;border-radius:6px;cursor:pointer;
+  color:#64748b;font-weight:600;transition:.15s;
+}
+.mode-switch input{display:none;}
+.mode-switch input:checked + span{color:#fff;background:#2563eb;padding:3px 10px;border-radius:6px;display:block;}
+.mode-switch span{padding:3px 10px;display:block;}
+
+.table-wrap{
+  overflow:auto;border:1px solid #dbe4ee;border-radius:8px;
+}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th,td{
+  padding:6px 7px;text-align:center;border-bottom:1px solid #eef2f7;
+  white-space:nowrap;vertical-align:middle;
+}
+th{
+  background:#f8fafc;color:#475569;font-weight:600;font-size:11px;
+  position:sticky;top:0;z-index:2;border-bottom:1.5px solid #dbe4ee;
+}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:#f8fbff;}
+tbody tr.miss td{background:#fef2f2;}
+tbody tr.miss:hover td{background:#fee2e2;}
+tbody tr.missB td{background:#eff6ff;}
+tbody tr.missB:hover td{background:#dbeafe;}
+tbody tr.pending td{background:#fffbeb;}
+tbody tr.pending:hover td{background:#fef3c7;}
+tbody tr.clickable{cursor:pointer;}
+tbody tr.clickable:hover{background:#f0f7ff;}
+
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;}
+.num{font-weight:800;color:#d97706;font-family:ui-monospace,monospace;}
+
+.tag{
+  display:inline-block;padding:1px 8px;border-radius:20px;
+  font-size:11.5px;font-weight:600;color:#fff;margin:0 1px;line-height:1.5;
+}
+.tag.g0{background:#ef4444;}
+.tag.g1{background:#3b82f6;}
+.tag.g2{background:#f59e0b;}
+.tag.g3{background:#10b981;}
+
+.predict-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media(max-width:600px){.predict-grid{grid-template-columns:1fr;}}
+.predict-box{
+  border-radius:10px;padding:12px 14px;border:1px solid #dbe4ee;
+  background:#f8fafc;
+}
+.predict-box.planA{border-color:#fecaca;background:#fff5f5;}
+.predict-box.planB{border-color:#bfdbfe;background:#f0f7ff;}
+.plan-title{
+  font-size:12px;font-weight:700;margin-bottom:10px;
+  display:flex;justify-content:space-between;align-items:center;
+}
+.planA .plan-title{color:#dc2626;}
+.planB .plan-title{color:#1d4ed8;}
+.plan-title .tag-mini{
+  font-size:10px;padding:1px 7px;border-radius:10px;font-weight:600;
+}
+.planA .tag-mini{background:#fee2e2;color:#b91c1c;}
+.planB .tag-mini{background:#dbeafe;color:#1d4ed8;}
+.predict-line{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.predict-line:last-child{margin-bottom:0;}
+.predict-line .label{
+  font-size:11px;color:#94a3b8;flex-shrink:0;width:36px;text-align:right;
+}
+.kill{font-size:20px;font-weight:800;color:#dc2626;letter-spacing:1.5px;}
+.kill.small{font-size:15px;}
+.buy{display:flex;gap:4px;flex-wrap:wrap;}
+.buy span{
+  font-size:12px;font-weight:700;color:#15803d;background:#dcfce7;
+  padding:2px 10px;border-radius:6px;border:1px solid #86efac;
+}
+.confidence{
+  margin-top:12px;padding-top:10px;border-top:1px dashed #dbe4ee;
+  display:flex;align-items:center;gap:10px;font-size:11.5px;flex-wrap:wrap;
+}
+.confidence .label{color:#94a3b8;flex-shrink:0;width:72px;text-align:right;}
+.conf-bar{
+  flex:1;height:8px;background:#e2e8f0;border-radius:4px;
+  overflow:hidden;max-width:220px;
+}
+.conf-bar>i{
+  display:block;height:100%;
+  background:linear-gradient(90deg,#f59e0b,#22c55e);
+  transition:width .4s;
+}
+.conf-val{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-weight:800;font-size:13px;color:#d97706;
+}
+
+.chart-wrap{
+  border:1px solid #dbe4ee;border-radius:10px;padding:6px;
+  background:#fbfdff;
+}
+canvas{display:block;width:100%;}
+
+.freq-list{display:flex;flex-direction:column;gap:8px;}
+.freq-item{display:flex;align-items:center;gap:10px;font-size:12px;}
+.freq-item .name{width:50px;text-align:right;font-weight:700;flex-shrink:0;}
+.freq-item .bar{
+  flex:1;height:20px;background:#f1f5f9;border-radius:5px;
+  overflow:hidden;border:1px solid #e2e8f0;
+}
+.freq-item .bar>i{display:block;height:100%;border-radius:5px;transition:width .4s;}
+.freq-item .pct{
+  width:110px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-weight:700;font-size:11.5px;color:#475569;text-align:right;flex-shrink:0;
+}
+
+.result-ok{color:#16a34a;font-weight:800;font-size:12px;}
+.result-fail{color:#dc2626;font-weight:800;font-size:12px;}
+.result-pending{color:#d97706;font-weight:700;font-size:11px;}
+
+.clear-section{text-align:center;padding:16px 0 30px;}
+.clear-btn{
+  background:none;border:none;color:#94a3b8;font-size:11.5px;
+  cursor:pointer;text-decoration:underline;font-family:inherit;
+  padding:6px 12px;border-radius:6px;transition:.2s;
+}
+.clear-btn:hover{color:#dc2626;background:rgba(220,38,38,.06);}
+
+.err-tip{
+  display:flex;align-items:center;gap:6px;padding:8px 12px;
+  background:#fef2f2;border:1px solid #fecaca;border-radius:8px;
+  color:#b91c1c;font-size:12px;margin-bottom:10px;
+}
+.err-tip.hidden{display:none;}
+
+.modal{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(15,23,42,.5);
+  display:flex;align-items:center;justify-content:center;
+  z-index:100;padding:20px;
+}
+.modal.hidden{display:none;}
+.modal-body{
+  background:#fff;border-radius:12px;padding:18px;
+  max-width:900px;width:100%;max-height:80vh;overflow:auto;
+  box-shadow:0 10px 30px rgba(15,23,42,.2);
+}
+.modal-body h3{
+  font-size:14px;font-weight:700;color:#1e293b;margin-bottom:12px;
+  padding-bottom:8px;border-bottom:1px solid #e2e8f0;
+  display:flex;justify-content:space-between;align-items:center;
+}
+.modal-body .close-btn{
+  background:none;border:none;font-size:18px;cursor:pointer;
+  color:#94a3b8;padding:0 6px;
+}
+.modal-body .close-btn:hover{color:#dc2626;}
+.modal-body table{font-size:11px;}
+.modal-body td, .modal-body th{padding:4px 6px;}
+
+::-webkit-scrollbar{width:7px;height:7px;}
+::-webkit-scrollbar-track{background:#f1f5f9;}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8;}
+
+@media(max-width:640px){
+  body{font-size:12px;padding:8px;}
+  .topbar .title{font-size:13px;}
+  .topbar .meta{font-size:11px;gap:9px;}
+  .card{padding:11px 12px;}
+  .kill{font-size:17px;}
+  .kill.small{font-size:13px;}
+  th,td{padding:5px 5px;font-size:11px;}
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="topbar">
+    <div class="title">
+      PC28 双轨预测系统 <small id="versionTag">v14</small>
+    </div>
+    <div class="meta">
+      <span><span class="status-dot" id="statusDot"></span>本地记忆：<b id="memCount">—</b> 期</span>
+      <span>时间：<b id="clock">—</b></span>
+      <span>倒计时：<span class="cd" id="countdown">—</span></span>
+    </div>
+  </div>
+
+  <div class="err-tip hidden" id="errTip">
+    ⚠️ <span id="errMsg">接口异常，使用本地数据</span>
+  </div>
+
+  <div class="card">
+    <h2>最新 10 期开奖记录</h2>
+    <div class="table-wrap" style="max-height:340px;">
+      <table>
+        <thead>
+          <tr>
+            <th>期号</th><th>号码</th><th>和值</th><th>组合</th><th>时间</th>
+          </tr>
+        </thead>
+        <tbody id="latestBody">
+          <tr><td colspan="5" style="color:#94a3b8;padding:14px;">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>
+      <span>下一期预测 <span class="sub" id="predictPeriod">目标：—</span></span>
+      <span class="mode-switch" id="modeSwitch">
+        <label><input type="radio" name="pairMode" value="joint" checked><span>配对联合</span></label>
+        <label><input type="radio" name="pairMode" value="top2"><span>单组前二</span></label>
+      </span>
+    </h2>
+
+    <div class="predict-grid">
+      <div class="predict-box planA">
+        <div class="plan-title">
+          <span>方案A · 买三杀一</span>
+          <span class="tag-mini">集成学习</span>
+        </div>
+        <div class="predict-line">
+          <span class="label">杀</span>
+          <span class="kill" id="planAKill">—</span>
+        </div>
+        <div class="predict-line">
+          <span class="label">买入</span>
+          <div class="buy" id="planABuy"><span>—</span></div>
+        </div>
+      </div>
+
+      <div class="predict-box planB">
+        <div class="plan-title">
+          <span>方案B · 买二杀二</span>
+          <span class="tag-mini" id="planBModeTag">配对联合</span>
+        </div>
+        <div class="predict-line">
+          <span class="label">杀</span>
+          <span class="kill small" id="planBKill">—</span>
+        </div>
+        <div class="predict-line">
+          <span class="label">买入</span>
+          <div class="buy" id="planBBuy"><span>—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="confidence">
+      <span class="label">置信度</span>
+      <div class="conf-bar"><i id="confBarA" style="width:0%"></i></div>
+      <span class="conf-val" id="confValA">A —</span>
+      <div class="conf-bar"><i id="confBarB" style="width:0%"></i></div>
+      <span class="conf-val" id="confValB">B —</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>30 期滑动窗口命中率 <span class="sub">方案A 红 · 方案B 蓝 · 85% 参考线</span></h2>
+    <div class="chart-wrap"><canvas id="chartHit"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>最近 50 期预测明细 <span class="sub">点击行查看快照</span></h2>
+    <div class="table-wrap" style="max-height:460px;">
+      <table>
+        <thead>
+          <tr>
+            <th>目标期号</th><th>实际组合</th><th>预测杀1</th><th>A命中</th><th>预测双杀对</th><th>B命中</th>
+          </tr>
+        </thead>
+        <tbody id="detailBody">
+          <tr><td colspan="6" style="color:#94a3b8;padding:14px;">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>各组合出现频率统计</h2>
+    <div class="freq-list" id="freqList">
+      <div style="color:#94a3b8;padding:8px;">加载中…</div>
+    </div>
+  </div>
+
+  <div class="clear-section">
+    <button class="clear-btn" id="clearBtn">清除本地数据并重新开始</button>
+  </div>
+
+</div>
+
+<div class="modal hidden" id="snapshotModal">
+  <div class="modal-body">
+    <h3>
+      <span id="snapshotTitle">预测快照</span>
+      <button class="close-btn" id="closeSnapshot">✕</button>
+    </h3>
+    <div id="snapshotContent"></div>
+  </div>
+</div>
+
+<script>
+/* ==================================================================================
+   PC28 双轨预测系统 v14
+   ================================================================================== */
+
+/* ============================ A. 基础常量与工具 ============================ */
+
+const GROUPS      = ['小单', '小双', '大单', '大双'];
+const GROUP_IDX   = { '小单': 0, '小双': 1, '大单': 2, '大双': 3 };
+const GROUP_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
+
+const PAIRS = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+
+const SUM_COUNTS = [
+  1,3,6,10,15,21,28,36,45,55,63,69,73,75,
+  75,73,69,63,55,45,36,28,21,15,10,6,3,1
+];
+
+function groupOf(sum){
+  if (sum < 0 || sum > 27) return -1;
+  const isBig = sum >= 14;
+  const isOdd = (sum % 2) === 1;
+  if (!isBig &&  isOdd) return 0;
+  if (!isBig && !isOdd) return 1;
+  if ( isBig &&  isOdd) return 2;
+  return 3;
+}
+
+const THEORY = (function(){
+  const c = [0,0,0,0];
+  for (let s = 0; s <= 27; s++) c[groupOf(s)] += SUM_COUNTS[s];
+  return c.map(v => v / 1000);
+})();
+
+const SUM_BINS = [[0,3],[4,7],[8,11],[12,15],[16,19],[20,23],[24,27]];
+const BIN_COVER = [
+  [2,2,2,1,0,0,0],
+  [2,2,2,1,0,0,0],
+  [0,0,0,1,2,2,2],
+  [0,0,0,1,2,2,2]
+];
+
+/** 系统常量 */
+const MODEL_VERSION = 'v14';
+const MIN_T         = 40;      // 【本次修改】最小预热期从 80 降为 40
+const ROLL_W        = 30;
+const N_LEARNERS    = 30;
+const MAX_RECORDS   = 10000;
+const POLL_MS       = 30000;
+const PRED_STORE_MAX = 3000;
+
+const $ = id => document.getElementById(id);
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g, ch =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+
+function pct(v, d){ return (v * 100).toFixed(d === undefined ? 2 : d) + '%'; }
+
+function makeRNG(seed){
+  let s = seed >>> 0;
+  return function(){
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s / 0x7fffffff;
+  };
+}
+
+/* ============================ B. IndexedDB 记忆库模块 ============================ */
+
+const DB_NAME           = 'PC28PredictorDB';
+const DB_VERSION        = 3;
+const STORE_HISTORY     = 'history';
+const STORE_PREDICTIONS = 'predictions';
+const STORE_META        = 'meta';
+
+let _db = null;
+
+function detectExistingVersion(){
+  return new Promise((resolve) => {
+    try {
+      if (indexedDB.databases){
+        indexedDB.databases().then(dbs => {
+          const found = dbs.find(d => d.name === DB_NAME);
+          resolve(found ? found.version : null);
+        }).catch(() => resolve(null));
+        return;
+      }
+      const req = indexedDB.open(DB_NAME);
+      let resolved = false;
+      req.onsuccess = (e) => {
+        const v = e.target.result.version;
+        e.target.result.close();
+        if (!resolved){ resolved = true; resolve(v); }
+      };
+      req.onerror = () => {
+        if (!resolved){ resolved = true; resolve(null); }
+      };
+      req.onupgradeneeded = (e) => {
+        e.target.result.close();
+        if (!resolved){ resolved = true; resolve(1); }
+      };
+    } catch (e){
+      resolve(null);
+    }
+  });
+}
+
+function openDB(){
+  return new Promise((resolve, reject) => {
+    if (_db){ resolve(_db); return; }
+
+    detectExistingVersion().then(existingVersion => {
+      const targetVersion = (existingVersion && existingVersion > DB_VERSION)
+        ? existingVersion
+        : DB_VERSION;
+
+      const req = indexedDB.open(DB_NAME, targetVersion);
+
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE_HISTORY)){
+          const store = db.createObjectStore(STORE_HISTORY, { keyPath: 'nbr' });
+          store.createIndex('nbr_idx', 'nbr', { unique: true });
+        }
+        if (!db.objectStoreNames.contains(STORE_PREDICTIONS)){
+          db.createObjectStore(STORE_PREDICTIONS, { keyPath: 'nbr' });
+        }
+        if (!db.objectStoreNames.contains(STORE_META)){
+          db.createObjectStore(STORE_META, { keyPath: 'key' });
+        }
+      };
+
+      req.onsuccess = (e) => {
+        _db = e.target.result;
+        console.log(`[DB] 数据库已打开（实际版本 ${_db.version}）`);
+        resolve(_db);
+      };
+      req.onerror = (e) => {
+        console.error('[DB] 打开失败', e.target.error);
+        reject(e.target.error);
+      };
+      req.onblocked = () => {
+        console.warn('[DB] 有其他标签页占用数据库，请关闭其他标签页后刷新');
+      };
+    }).catch(reject);
+  });
+}
+
+window.resetDB = function(){
+  if (_db){ _db.close(); _db = null; }
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => { console.log('[DB] 已删除'); resolve(); };
+    req.onerror = (e) => reject(e.target.error);
+    req.onblocked = () => console.warn('[DB] 删除被阻塞，请关闭其他标签页');
+  });
+};
+
+function getAllHistory(){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_HISTORY, 'readonly');
+    const req = tx.objectStore(STORE_HISTORY).getAll();
+    req.onsuccess = () => {
+      const arr = req.result || [];
+      arr.sort((a, b) => {
+        const na = Number(a.nbr), nb = Number(b.nbr);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return String(a.nbr).localeCompare(String(b.nbr));
+      });
+      resolve(arr);
+    };
+    req.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function putManyHistory(records){
+  if (!records || records.length === 0) return Promise.resolve(0);
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_HISTORY, 'readwrite');
+    const store = tx.objectStore(STORE_HISTORY);
+    let added = 0;
+    records.forEach(rec => {
+      const checkReq = store.get(rec.nbr);
+      checkReq.onsuccess = () => {
+        if (checkReq.result === undefined){
+          store.put({
+            nbr:         String(rec.nbr),
+            date:        String(rec.date || ''),
+            time:        String(rec.time || ''),
+            number:      String(rec.number || ''),
+            num:         parseInt(rec.num, 10) || 0,
+            combination: String(rec.combination || '')
+          });
+          added++;
+        }
+      };
+    });
+    tx.oncomplete = () => resolve(added);
+    tx.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function countHistory(){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_HISTORY, 'readonly');
+    const req = tx.objectStore(STORE_HISTORY).count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function trimHistory(maxCount){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_HISTORY, 'readwrite');
+    const store = tx.objectStore(STORE_HISTORY);
+    const countReq = store.count();
+    countReq.onsuccess = () => {
+      const total = countReq.result;
+      if (total <= maxCount){ resolve(0); return; }
+      const excess = total - maxCount;
+      let deleted = 0;
+      const cursorReq = store.openCursor();
+      cursorReq.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor || deleted >= excess){ resolve(deleted); return; }
+        cursor.delete();
+        deleted++;
+        cursor.continue();
+      };
+      cursorReq.onerror = (e) => reject(e.target.error);
+    };
+    countReq.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function getAllPredictions(){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PREDICTIONS, 'readonly');
+    const req = tx.objectStore(STORE_PREDICTIONS).getAll();
+    req.onsuccess = () => {
+      const arr = req.result || [];
+      arr.sort((a, b) => {
+        const na = Number(a.nbr), nb = Number(b.nbr);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return String(a.nbr).localeCompare(String(b.nbr));
+      });
+      resolve(arr);
+    };
+    req.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function putPrediction(pred){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PREDICTIONS, 'readwrite');
+    const store = tx.objectStore(STORE_PREDICTIONS);
+    const checkReq = store.get(pred.nbr);
+    checkReq.onsuccess = () => {
+      if (checkReq.result === undefined){
+        store.put(pred);
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function putManyPredictions(preds){
+  if (!preds || preds.length === 0) return Promise.resolve(0);
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PREDICTIONS, 'readwrite');
+    const store = tx.objectStore(STORE_PREDICTIONS);
+    let added = 0;
+    preds.forEach(p => {
+      const checkReq = store.get(p.nbr);
+      checkReq.onsuccess = () => {
+        if (checkReq.result === undefined){
+          store.put(p);
+          added++;
+        }
+      };
+    });
+    tx.oncomplete = () => resolve(added);
+    tx.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function trimPredictions(maxCount){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PREDICTIONS, 'readwrite');
+    const store = tx.objectStore(STORE_PREDICTIONS);
+    const countReq = store.count();
+    countReq.onsuccess = () => {
+      const total = countReq.result;
+      if (total <= maxCount){ resolve(0); return; }
+      const excess = total - maxCount;
+      let deleted = 0;
+      const cursorReq = store.openCursor();
+      cursorReq.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor || deleted >= excess){ resolve(deleted); return; }
+        cursor.delete();
+        deleted++;
+        cursor.continue();
+      };
+      cursorReq.onerror = (e) => reject(e.target.error);
+    };
+    countReq.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function setMeta(key, value){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_META, 'readwrite');
+    tx.objectStore(STORE_META).put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function getMeta(key){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_META, 'readonly');
+    const req = tx.objectStore(STORE_META).get(key);
+    req.onsuccess = () => resolve(req.result ? req.result.value : null);
+    req.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+function clearAll(){
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(
+      [STORE_HISTORY, STORE_PREDICTIONS, STORE_META],
+      'readwrite'
+    );
+    tx.objectStore(STORE_HISTORY).clear();
+    tx.objectStore(STORE_PREDICTIONS).clear();
+    tx.objectStore(STORE_META).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  }));
+}
+
+/* ============================ C. 特征计算 ============================ */
+
+function computeFeaturesAt(records, cutoffIdx, N, k, mask){
+  const n = cutoffIdx;
+  if (n > records.length){
+    throw new Error(`computeFeaturesAt: cutoffIdx=${cutoffIdx} > records.length=${records.length}`);
+  }
+  const F = [
+    [0,0,0,0,0,0],
+    [0,0,0,0,0,0],
+    [0,0,0,0,0,0],
+    [0,0,0,0,0,0]
+  ];
+  const groups = new Array(n);
+  const sums   = new Array(n);
+  for (let i = 0; i < n; i++){
+    groups[i] = GROUP_IDX[records[i].combination];
+    if (groups[i] === undefined) groups[i] = 0;
+    sums[i] = records[i].num;
+  }
+  if (mask & 1){
+    const w = Math.min(N, n);
+    if (w > 0){
+      const cnt = [0,0,0,0];
+      for (let i = n - w; i < n; i++) cnt[groups[i]]++;
+      for (let g = 0; g < 4; g++) F[g][0] = cnt[g] / w - THEORY[g];
+    }
+  }
+  if (mask & 2){
+    const w = Math.min(20, n);
+    if (w > 0){
+      const cnt = [0,0,0,0];
+      for (let i = n - w; i < n; i++) cnt[groups[i]]++;
+      for (let g = 0; g < 4; g++) F[g][1] = cnt[g] / w - THEORY[g];
+    }
+  }
+  if (mask & 4){
+    for (let g = 0; g < 4; g++){
+      let miss = n;
+      for (let i = n - 1; i >= 0; i--){
+        if (groups[i] === g){ miss = n - 1 - i; break; }
+      }
+      F[g][2] = 1 / (1 + Math.exp(-k * (miss - 5)));
+    }
+  }
+  if (mask & 8){
+    if (n >= 3){
+      const g1 = groups[n-3], g2 = groups[n-2], g3 = groups[n-1];
+      const b1 = g1>=2?1:0, b2 = g2>=2?1:0, b3 = g3>=2?1:0;
+      const o1 = (g1===0||g1===2)?1:0;
+      const o2 = (g2===0||g2===2)?1:0;
+      const o3 = (g3===0||g3===2)?1:0;
+      const bigStreak = (b1===b2 && b2===b3) ? b1 : -1;
+      const oddStreak = (o1===o2 && o2===o3) ? o1 : -1;
+      for (let g = 0; g < 4; g++){
+        const gb = g>=2?1:0;
+        const go = (g===0||g===2)?1:0;
+        let s = 0;
+        if (bigStreak >= 0 && gb === bigStreak) s++;
+        if (oddStreak >= 0 && go === oddStreak) s++;
+        F[g][3] = s;
+      }
+    }
+  }
+  if (mask & 16){
+    if (n >= 1){
+      const lastG = groups[n-1];
+      const trans = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+      for (let i = 0; i < n - 1; i++){
+        trans[groups[i]][groups[i+1]]++;
+      }
+      const rowSum = trans[lastG][0] + trans[lastG][1] +
+                     trans[lastG][2] + trans[lastG][3];
+      const SMOOTH = 5;
+      const inv = 1 / (rowSum + SMOOTH);
+      for (let g = 0; g < 4; g++){
+        F[g][4] = (trans[lastG][g] + SMOOTH * THEORY[g]) * inv;
+      }
+    }
+  }
+  if (mask & 32){
+    const w = Math.min(10, n);
+    if (w > 0){
+      const binCnt = [0,0,0,0,0,0,0];
+      for (let i = n - w; i < n; i++){
+        const s = sums[i];
+        for (let b = 0; b < 7; b++){
+          if (s >= SUM_BINS[b][0] && s <= SUM_BINS[b][1]){ binCnt[b]++; break; }
+        }
+      }
+      const invW = 1 / w;
+      for (let g = 0; g < 4; g++){
+        let num = 0, den = 0;
+        for (let b = 0; b < 7; b++){
+          num += BIN_COVER[g][b] * (binCnt[b] * invW);
+          den += BIN_COVER[g][b];
+        }
+        F[g][5] = den > 0 ? num / den : 0;
+      }
+    }
+  }
+  return F;
+}
+
+function computeTransitionProbAt(records, cutoffIdx){
+  const n = cutoffIdx;
+  if (n < 2) return [0.25, 0.25, 0.25, 0.25];
+  const groups = new Array(n);
+  for (let i = 0; i < n; i++){
+    groups[i] = GROUP_IDX[records[i].combination];
+    if (groups[i] === undefined) groups[i] = 0;
+  }
+  const lastG = groups[n-1];
+  const trans = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+  for (let i = 0; i < n - 1; i++){
+    trans[groups[i]][groups[i+1]]++;
+  }
+  const row = trans[lastG];
+  const rowSum = row[0] + row[1] + row[2] + row[3];
+  const SMOOTH = 5;
+  const prob = [0,0,0,0];
+  for (let g = 0; g < 4; g++){
+    prob[g] = (row[g] + SMOOTH * THEORY[g]) / (rowSum + SMOOTH);
+  }
+  return prob;
+}
+
+/* ============================ D. 基学习器与集成决策 ============================ */
+
+function initLearners(seed){
+  const N_VALS   = [5, 10, 15, 20, 30];
+  const ETA_VALS = [0.05, 0.1, 0.2];
+  const K_VALS   = [0.3, 0.5, 0.8];
+  const rand = makeRNG(seed);
+  const learners = [];
+  for (let i = 0; i < N_LEARNERS; i++){
+    const N   = N_VALS[Math.floor(rand() * N_VALS.length)];
+    const eta = ETA_VALS[Math.floor(rand() * ETA_VALS.length)];
+    const k   = K_VALS[Math.floor(rand() * K_VALS.length)];
+    let mask  = 0;
+    while (mask === 0) mask = Math.floor(rand() * 64);
+    learners.push({
+      id: i, N, eta, k, mask,
+      W: [
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1],
+        [1,1,1,1,1,1]
+      ],
+      ha: [],
+      hb: []
+    });
+  }
+  return learners;
+}
+
+function computeBaseScores(L, records, t){
+  const feats = computeFeaturesAt(records, t, L.N, L.k, L.mask);
+  const scores = [0,0,0,0];
+  for (let g = 0; g < 4; g++){
+    for (let f = 0; f < 6; f++){
+      if (!(L.mask & (1 << f))) continue;
+      scores[g] += L.W[g][f] * feats[g][f];
+    }
+  }
+  return { feats, scores };
+}
+
+function baseScoresToPairs(scores){
+  return PAIRS.map(([a,b]) => scores[a] + scores[b]);
+}
+
+function argmax(arr){
+  let idx = 0;
+  for (let i = 1; i < arr.length; i++) if (arr[i] > arr[idx]) idx = i;
+  return idx;
+}
+
+function computeConfidence(scores){
+  const sorted = scores.slice().sort((a,b) => b - a);
+  const total = scores.reduce((a,b) => a + Math.abs(b), 0);
+  if (total < 1e-9) return 0;
+  const gap = sorted[0] - sorted[1];
+  return Math.max(0, Math.min(1, gap / (total / scores.length + 0.01)));
+}
+
+function updateLearner(L, records, t, actualG){
+  const { feats, scores } = computeBaseScores(L, records, t);
+  const kill1_L = argmax(scores);
+  const order = [0,1,2,3].sort((a,b) => scores[b] - scores[a]);
+  const kill2_L = [order[0], order[1]];
+  const hit1 = actualG !== kill1_L ? 1 : 0;
+  const hit2 = !kill2_L.includes(actualG) ? 1 : 0;
+  L.ha.push(hit1);
+  if (L.ha.length > 30) L.ha.shift();
+  L.hb.push(hit2);
+  if (L.hb.length > 30) L.hb.shift();
+  if (!hit1){
+    for (let f = 0; f < 6; f++){
+      if (!(L.mask & (1 << f))) continue;
+      const killVal = feats[kill1_L][f];
+      let sumO = 0;
+      for (let g = 0; g < 4; g++) if (g !== kill1_L) sumO += feats[g][f];
+      if (killVal > sumO / 3){
+        L.W[kill1_L][f] -= L.eta;
+        if (L.W[kill1_L][f] < 0.1) L.W[kill1_L][f] = 0.1;
+      }
+    }
+  }
+  if (!hit2){
+    for (const g of kill2_L){
+      for (let f = 0; f < 6; f++){
+        if (!(L.mask & (1 << f))) continue;
+        const killVal = feats[g][f];
+        let sumO = 0;
+        for (let gg = 0; gg < 4; gg++) if (gg !== g) sumO += feats[gg][f];
+        if (killVal > sumO / 3){
+          L.W[g][f] -= L.eta;
+          if (L.W[g][f] < 0.1) L.W[g][f] = 0.1;
+        }
+      }
+    }
+  }
+}
+
+function ensembleDecision(learners, records, t, pairMode){
+  const baseScores = [];
+  const baseWeights = [];
+  for (const L of learners){
+    const { scores } = computeBaseScores(L, records, t);
+    const pairScores = baseScoresToPairs(scores);
+    baseScores.push({
+      baseId: L.id,
+      score小单: scores[0],
+      score小双: scores[1],
+      score大单: scores[2],
+      score大双: scores[3],
+      pairScores: pairScores.slice()
+    });
+    const ha = L.ha.length > 0 ? L.ha.reduce((a,b) => a+b, 0) / L.ha.length : 0.5;
+    const hb = L.hb.length > 0 ? L.hb.reduce((a,b) => a+b, 0) / L.hb.length : 0.5;
+    baseWeights.push({
+      baseId: L.id,
+      wA: Math.pow(ha, 3),
+      wB: Math.pow(hb, 3),
+      ha, hb
+    });
+  }
+  const S1 = [0,0,0,0];
+  for (let i = 0; i < learners.length; i++){
+    const w = baseWeights[i].wA;
+    S1[0] += w * baseScores[i].score小单;
+    S1[1] += w * baseScores[i].score小双;
+    S1[2] += w * baseScores[i].score大单;
+    S1[3] += w * baseScores[i].score大双;
+  }
+  const kill1 = argmax(S1);
+  let kill2_pair;
+  if (pairMode === 'top2'){
+    const order = [0,1,2,3].sort((a,b) => S1[b] - S1[a]);
+    kill2_pair = [order[0], order[1]];
+  } else {
+    const SPair = [0,0,0,0,0,0];
+    for (let i = 0; i < learners.length; i++){
+      const w = baseWeights[i].wB;
+      for (let p = 0; p < 6; p++){
+        SPair[p] += w * baseScores[i].pairScores[p];
+      }
+    }
+    const transProb = computeTransitionProbAt(records, t);
+    const spMax = Math.max(...SPair.map(Math.abs), 1e-9);
+    const spNorm = SPair.map(v => v / spMax);
+    const jointScores = PAIRS.map(([a,b], idx) => {
+      const pInPair = transProb[a] + transProb[b];
+      return 0.7 * pInPair + 0.3 * spNorm[idx];
+    });
+    let maxIdx = 0;
+    for (let i = 1; i < 6; i++) if (jointScores[i] > jointScores[maxIdx]) maxIdx = i;
+    kill2_pair = PAIRS[maxIdx];
+  }
+  const confA = computeConfidence(S1);
+  const bpScores = PAIRS.map(([a,b]) => S1[a] + S1[b]);
+  const confB = computeConfidence(bpScores);
+  return {
+    S1,
+    baseScores,
+    baseWeights,
+    kill1,
+    kill2_pair,
+    kill2_top2: [0,1,2,3].sort((a,b) => S1[b] - S1[a]).slice(0, 2),
+    confA,
+    confB
+  };
+}
+
+/* ============================ E. Walk-forward ============================ */
+
+function hashWindow(records, t){
+  const last = records.slice(Math.max(0, t - 10), t).map(r => r.nbr).join('|');
+  let h = 0;
+  for (let i = 0; i < last.length; i++){
+    h = (h * 31 + last.charCodeAt(i)) | 0;
+  }
+  return h.toString(16);
+}
+
+function nextNbrFrom(lastNbr){
+  const num = Number(lastNbr);
+  if (isNaN(num)) return String(lastNbr) + '+1';
+  return String(num + 1);
+}
+
+function computePrediction(records, t, learners, pairMode){
+  const targetNbr = (t < records.length)
+    ? String(records[t].nbr)
+    : nextNbrFrom(records[records.length - 1].nbr);
+  const decision = ensembleDecision(learners, records, t, pairMode);
+  return {
+    nbr: targetNbr,
+    predictTime: Date.now(),
+    windowDataHash: hashWindow(records, t),
+    baseScores: decision.baseScores,
+    baseWeights: decision.baseWeights,
+    kill1: decision.kill1,
+    kill2_pair: decision.kill2_pair,
+    kill2_two_names: decision.kill2_pair.map(g => GROUPS[g]),
+    kill2_top2: decision.kill2_top2,
+    S1: decision.S1,
+    confA: decision.confA,
+    confB: decision.confB,
+    pairMode: pairMode,
+    modelVersion: MODEL_VERSION,
+    actualCombination: null,
+    hitA: null,
+    hitB: null
+  };
+}
+
+function walkForward(records, predsByNbr, pairMode){
+  if (records.length < MIN_T){
+    console.log(`[WalkForward] 数据不足 ${MIN_T} 期（当前 ${records.length}）`);
+    return { results: [], nextPred: null, newPreds: [] };
+  }
+  const learners = initLearners(0xC0FFEE);
+  const results = [];
+  const newPreds = [];
+  for (let t = MIN_T; t <= records.length; t++){
+    const isFuture = (t === records.length);
+    const targetNbr = isFuture
+      ? nextNbrFrom(records[records.length - 1].nbr)
+      : String(records[t].nbr);
+    let pred = predsByNbr.get(targetNbr);
+    if (!pred){
+      pred = computePrediction(records, t, learners, pairMode);
+      newPreds.push(pred);
+      predsByNbr.set(targetNbr, pred);
+    }
+    if (isFuture){
+      continue;
+    }
+    const actualG = GROUP_IDX[records[t].combination];
+    if (actualG === undefined){
+      console.warn(`[WalkForward] 第 ${t} 期组合无法识别:`, records[t].combination);
+      continue;
+    }
+    for (const L of learners){
+      updateLearner(L, records, t, actualG);
+    }
+    if (pred.actualCombination === null){
+      pred.actualCombination = records[t].combination;
+      pred.hitA = actualG !== pred.kill1 ? 1 : 0;
+      pred.hitB = !pred.kill2_pair.includes(actualG) ? 1 : 0;
+    }
+    results.push(pred);
+  }
+  const futureNbr = nextNbrFrom(records[records.length - 1].nbr);
+  const nextPred = predsByNbr.get(futureNbr) || null;
+  return { results, nextPred, newPreds };
+}
+
+/* ============================ F. UI 渲染 ============================ */
+
+let _currentPairMode = 'joint';
+
+function updateTopbar(memCount){
+  $('memCount').textContent = memCount;
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  $('clock').textContent =
+    `${pad(now.getMonth()+1)}-${pad(now.getDate())} ` +
+    `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
+function showErr(msg){
+  $('errMsg').textContent = msg;
+  $('errTip').classList.remove('hidden');
+  $('statusDot').classList.add('err');
+}
+function hideErr(){
+  $('errTip').classList.add('hidden');
+  $('statusDot').classList.remove('err');
+}
+
+function renderLatest(records){
+  const body = $('latestBody');
+  if (!records || records.length === 0){
+    body.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;padding:14px;">暂无数据</td></tr>';
+    return;
+  }
+  const rows = records.slice(-10).reverse();
+  body.innerHTML = rows.map(r => {
+    const g = GROUP_IDX[r.combination];
+    const gTag = (g !== undefined)
+      ? `<span class="tag g${g}">${esc(r.combination)}</span>`
+      : esc(r.combination);
+    return `<tr>
+      <td class="mono">${esc(r.nbr)}</td>
+      <td class="mono">${esc(r.number)}</td>
+      <td class="num">${r.num}</td>
+      <td>${gTag}</td>
+      <td style="font-size:11px;color:#64748b;">${esc(r.date||'')} ${esc(r.time||'')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPredict(nextPred){
+  if (!nextPred){
+    $('predictPeriod').textContent = '目标：—';
+    $('planAKill').textContent = '—';
+    $('planABuy').innerHTML = '<span>—</span>';
+    $('planBKill').textContent = '—';
+    $('planBBuy').innerHTML = '<span>—</span>';
+    $('confValA').textContent = 'A —';
+    $('confValB').textContent = 'B —';
+    $('confBarA').style.width = '0%';
+    $('confBarB').style.width = '0%';
+    return;
+  }
+  $('predictPeriod').textContent = `目标：第 ${nextPred.nbr} 期`;
+  const aKill = nextPred.kill1;
+  $('planAKill').textContent = GROUPS[aKill];
+  $('planABuy').innerHTML = [0,1,2,3].filter(g => g !== aKill)
+    .map(g => `<span>${GROUPS[g]}</span>`).join('');
+  const bKill = nextPred.pairMode === 'top2' ? nextPred.kill2_top2 : nextPred.kill2_pair;
+  $('planBKill').textContent = `${GROUPS[bKill[0]]} + ${GROUPS[bKill[1]]}`;
+  $('planBBuy').innerHTML = [0,1,2,3].filter(g => !bKill.includes(g))
+    .map(g => `<span>${GROUPS[g]}</span>`).join('');
+  $('planBModeTag').textContent = nextPred.pairMode === 'top2' ? '单组前二' : '配对联合';
+  const confA = (nextPred.confA * 100).toFixed(1);
+  const confB = (nextPred.confB * 100).toFixed(1);
+  $('confValA').textContent = `A ${confA}%`;
+  $('confValB').textContent = `B ${confB}%`;
+  $('confBarA').style.width = Math.max(0, Math.min(100, nextPred.confA * 100)) + '%';
+  $('confBarB').style.width = Math.max(0, Math.min(100, nextPred.confB * 100)) + '%';
+}
+
+function drawDualChart(canvas, results){
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = Math.max(360, canvas.parentElement.clientWidth - 14);
+  const cssH = 260;
+  canvas.width  = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.width  = '100%';
+  canvas.style.height = cssH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const pad = { l: 46, r: 16, t: 26, b: 34 };
+  const pw = cssW - pad.l - pad.r;
+  const ph = cssH - pad.t - pad.b;
+  const valid = results.filter(r => r.hitA !== null && r.hitA !== undefined);
+  if (valid.length < ROLL_W){
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      `已有 ${valid.length} 期有效记录，需满 ${ROLL_W} 期才能形成窗口`,
+      cssW/2, cssH/2
+    );
+    return;
+  }
+  const hitsA = valid.map(r => r.hitA);
+  const hitsB = valid.map(r => r.hitB);
+  function rolling(hits){
+    const win = [];
+    let s = 0;
+    for (let j = 0; j < ROLL_W; j++) s += hits[j];
+    win.push(s / ROLL_W);
+    for (let k = 1; k + ROLL_W <= hits.length; k++){
+      s = s - hits[k - 1] + hits[k + ROLL_W - 1];
+      win.push(s / ROLL_W);
+    }
+    return win;
+  }
+  const winA = rolling(hitsA);
+  const winB = rolling(hitsB);
+  let yLo = 1, yHi = 0;
+  winA.forEach(v => { if (v < yLo) yLo = v; if (v > yHi) yHi = v; });
+  winB.forEach(v => { if (v < yLo) yLo = v; if (v > yHi) yHi = v; });
+  yLo = Math.min(yLo, 0.85);
+  yHi = Math.max(yHi, 0.85);
+  yLo = Math.max(0, Math.floor((yLo - 0.08) * 20) / 20);
+  yHi = Math.min(1, Math.ceil((yHi + 0.05) * 20) / 20);
+  if (yHi - yLo < 0.25) yHi = Math.min(1, yLo + 0.25);
+  const yToPx = v => pad.t + (yHi - v) / (yHi - yLo) * ph;
+  const xToPx = i => pad.l + (winA.length === 1 ? pw/2 : i/(winA.length-1) * pw);
+  const TICKS = 5;
+  ctx.font = '10px sans-serif';
+  ctx.textBaseline = 'middle';
+  for (let t = 0; t <= TICKS; t++){
+    const v = yLo + (yHi - yLo) * t / TICKS;
+    const y = yToPx(v);
+    ctx.strokeStyle = '#eef2f7';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + pw, y);
+    ctx.stroke();
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'right';
+    ctx.fillText((v*100).toFixed(0) + '%', pad.l - 6, y);
+  }
+  const y85 = yToPx(0.85);
+  ctx.save();
+  ctx.setLineDash([6, 4]);
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, y85);
+  ctx.lineTo(pad.l + pw, y85);
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#dc2626';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('85%', pad.l + 4, y85 - 2);
+  ctx.beginPath();
+  winA.forEach((v, i) => {
+    const x = xToPx(i), y = yToPx(v);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = 2.4;
+  ctx.lineJoin = 'round';
+  ctx.lineCap  = 'round';
+  ctx.stroke();
+  ctx.beginPath();
+  winB.forEach((v, i) => {
+    const x = xToPx(i), y = yToPx(v);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#2563eb';
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.lineCap  = 'round';
+  ctx.stroke();
+  const lx = pad.l + pw - 148;
+  const ly = pad.t + 2;
+  ctx.fillStyle = 'rgba(255,255,255,.92)';
+  ctx.fillRect(lx - 4, ly - 2, 144, 32);
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(lx - 4, ly - 2, 144, 32);
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.beginPath();
+  ctx.moveTo(lx, ly + 6);
+  ctx.lineTo(lx + 18, ly + 6);
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+  ctx.fillStyle = '#dc2626';
+  ctx.fillText('方案A 买三杀一', lx + 22, ly + 6);
+  ctx.beginPath();
+  ctx.moveTo(lx, ly + 22);
+  ctx.lineTo(lx + 18, ly + 22);
+  ctx.strokeStyle = '#2563eb';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+  ctx.fillStyle = '#2563eb';
+  ctx.fillText('方案B 买二杀二', lx + 22, ly + 22);
+  const lastA = winA[winA.length - 1];
+  const lastB = winB[winB.length - 1];
+  const minA = Math.min(...winA);
+  const minB = Math.min(...winB);
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#dc2626';
+  ctx.fillText(`A 当前 ${pct(lastA,1)} · 最低 ${pct(minA,1)}`, pad.l + pw, pad.t + 6);
+  ctx.fillStyle = '#2563eb';
+  ctx.fillText(`B 当前 ${pct(lastB,1)} · 最低 ${pct(minB,1)}`, pad.l + pw, pad.t + 20);
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const step = Math.max(1, Math.ceil(winA.length / 10));
+  for (let i = 0; i < winA.length; i += step){
+    ctx.fillText(String(i + 1), xToPx(i), pad.t + ph + 6);
+  }
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText('窗口序号', pad.l + pw / 2, pad.t + ph + 20);
+}
+
+function renderDetail(results){
+  const body = $('detailBody');
+  if (!results || results.length === 0){
+    body.innerHTML = '<tr><td colspan="6" style="color:#94a3b8;padding:14px;">暂无数据</td></tr>';
+    return;
+  }
+  const sorted = results.slice().sort((a, b) => Number(b.nbr) - Number(a.nbr));
+  const rows = sorted.slice(0, 50);
+  body.innerHTML = rows.map(r => {
+    const targetNbr = r.nbr;
+    let actualHtml;
+    if (!r.actualCombination){
+      actualHtml = '<span class="result-pending">等待开奖</span>';
+    } else {
+      const g = GROUP_IDX[r.actualCombination];
+      actualHtml = `<span class="tag g${g}">${esc(r.actualCombination)}</span>`;
+    }
+    const killAHtml = `<span class="tag g${r.kill1}">${GROUPS[r.kill1]}</span>`;
+    let hitAHtml;
+    if (r.hitA === null || r.hitA === undefined){
+      hitAHtml = '<span class="result-pending">—</span>';
+    } else if (r.hitA === 1){
+      hitAHtml = '<span class="result-ok">✓</span>';
+    } else {
+      hitAHtml = '<span class="result-fail">✗</span>';
+    }
+    const bKill = r.pairMode === 'top2' ? r.kill2_top2 : r.kill2_pair;
+    const killBHtml = bKill.map(g =>
+      `<span class="tag g${g}">${GROUPS[g]}</span>`).join('');
+    let hitBHtml;
+    if (r.hitB === null || r.hitB === undefined){
+      hitBHtml = '<span class="result-pending">—</span>';
+    } else if (r.hitB === 1){
+      hitBHtml = '<span class="result-ok">✓</span>';
+    } else {
+      hitBHtml = '<span class="result-fail">✗</span>';
+    }
+    let rowCls = 'clickable';
+    if (r.hitA === 0) rowCls += ' miss';
+    else if (r.hitB === 0) rowCls += ' missB';
+    else if (!r.actualCombination) rowCls += ' pending';
+    return `<tr class="${rowCls}" data-nbr="${esc(targetNbr)}">
+      <td class="mono">${esc(targetNbr)}</td>
+      <td>${actualHtml}</td>
+      <td>${killAHtml}</td>
+      <td>${hitAHtml}</td>
+      <td>${killBHtml}</td>
+      <td>${hitBHtml}</td>
+    </tr>`;
+  }).join('');
+  body.querySelectorAll('tr[data-nbr]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const nbr = tr.dataset.nbr;
+      const pred = results.find(r => String(r.nbr) === String(nbr));
+      if (pred) showSnapshot(pred);
+    });
+  });
+}
+
+function showSnapshot(pred){
+  $('snapshotTitle').textContent = `预测快照 · 目标期号 ${pred.nbr}`;
+  const actualStr = pred.actualCombination || '（未开奖）';
+  const hitAStr = pred.hitA === null ? '—' : (pred.hitA === 1 ? '✓ 命中' : '✗ 未中');
+  const hitBStr = pred.hitB === null ? '—' : (pred.hitB === 1 ? '✓ 命中' : '✗ 未中');
+  let html = `
+    <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:12px;line-height:1.8;">
+      <b>预测时间：</b>${new Date(pred.predictTime).toLocaleString('zh-CN')}<br>
+      <b>模型版本：</b>${esc(pred.modelVersion)} · <b>数据窗口哈希：</b>${esc(pred.windowDataHash)}<br>
+      <b>双组模式：</b>${pred.pairMode === 'top2' ? '单组前二' : '配对联合'}<br>
+      <b>实际组合：</b>${esc(actualStr)}<br>
+      <b>杀 1：</b><span class="tag g${pred.kill1}">${GROUPS[pred.kill1]}</span> — A ${hitAStr}<br>
+      <b>杀 2：</b>${(pred.pairMode === 'top2' ? pred.kill2_top2 : pred.kill2_pair).map(g => `<span class="tag g${g}">${GROUPS[g]}</span>`).join('')} — B ${hitBStr}<br>
+      <b>置信度：</b>A ${(pred.confA*100).toFixed(1)}% · B ${(pred.confB*100).toFixed(1)}%
+    </div>
+    <h4 style="font-size:12.5px;color:#475569;margin-bottom:6px;">基学习器分数（baseScores）</h4>
+    <div style="overflow:auto;border:1px solid #e2e8f0;border-radius:8px;max-height:220px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">基ID</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">小单</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">小双</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">大单</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">大双</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">最大对</th>
+        </tr></thead>
+        <tbody>
+  `;
+  pred.baseScores.forEach(bs => {
+    const ps = bs.pairScores;
+    let maxIdx = 0;
+    for (let i = 1; i < 6; i++) if (ps[i] > ps[maxIdx]) maxIdx = i;
+    const pair = PAIRS[maxIdx];
+    html += `<tr>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bs.baseId}</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bs.score小单.toFixed(3)}</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bs.score小双.toFixed(3)}</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bs.score大单.toFixed(3)}</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bs.score大双.toFixed(3)}</td>
+      <td style="padding:4px;text-align:center;">
+        <span class="tag g${pair[0]}">${GROUPS[pair[0]]}</span>
+        <span class="tag g${pair[1]}">${GROUPS[pair[1]]}</span>
+      </td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>
+    <h4 style="font-size:12.5px;color:#475569;margin:12px 0 6px;">基学习器权重（baseWeights）</h4>
+    <div style="overflow:auto;border:1px solid #e2e8f0;border-radius:8px;max-height:220px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">基ID</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">ha (杀1命中)</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">wA</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">hb (杀2命中)</th>
+          <th style="background:#f8fafc;color:#475569;padding:5px;border-bottom:1px solid #e2e8f0;">wB</th>
+        </tr></thead>
+        <tbody>
+  `;
+  pred.baseWeights.forEach(bw => {
+    html += `<tr>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bw.baseId}</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${(bw.ha*100).toFixed(1)}%</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bw.wA.toFixed(4)}</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${(bw.hb*100).toFixed(1)}%</td>
+      <td style="padding:4px;text-align:center;font-family:monospace;">${bw.wB.toFixed(4)}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  $('snapshotContent').innerHTML = html;
+  $('snapshotModal').classList.remove('hidden');
+}
+
+function renderFreq(records){
+  const total = records.length || 1;
+  const cnt = [0,0,0,0];
+  records.forEach(r => {
+    const g = GROUP_IDX[r.combination];
+    if (g !== undefined) cnt[g]++;
+  });
+  const maxCnt = Math.max(...cnt) || 1;
+  $('freqList').innerHTML = GROUPS.map((name, g) => {
+    const p = cnt[g] / total;
+    const barW = (cnt[g] / maxCnt) * 100;
+    return `<div class="freq-item">
+      <span class="name" style="color:${GROUP_COLORS[g]}">${name}</span>
+      <span class="bar"><i style="width:${barW}%;background:${GROUP_COLORS[g]}"></i></span>
+      <span class="pct">${cnt[g]} 期 · ${pct(p,1)}</span>
+    </div>`;
+  }).join('') + `
+    <div style="font-size:11px;color:#94a3b8;margin-top:2px;padding-left:60px;">
+      理论：小单 26.9% · 小双 23.1% · 大单 23.1% · 大双 26.9%
+    </div>`;
+}
+
+/* ============================ G. 数据同步与轮询 ============================ */
+
+const API_URL = 'https://pc28.help/api/kj.json?nbr=80';
+
+let _pollTimer = null;
+let _refreshing = false;
+let _cachedHistory = [];
+let _cachedPreds = [];
+let _currentResults = [];
+let _currentNextPred = null;
+
+function fetchFromAPI(){
+  return fetch(API_URL, { cache: 'no-store' })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then(json => {
+      if (!json || !Array.isArray(json.data)){
+        throw new Error('接口返回格式异常');
+      }
+      const records = json.data.slice().reverse().map(item => ({
+        nbr:         String(item.nbr || ''),
+        date:        String(item.date || ''),
+        time:        String(item.time || ''),
+        number:      String(item.number || ''),
+        num:         parseInt(item.num, 10) || 0,
+        combination: String(item.combination || '')
+      })).filter(r => r.nbr && r.combination);
+      return { records, countdown: json.countdown || null };
+    });
+}
+
+async function refresh(){
+  if (_refreshing) return;
+  _refreshing = true;
+  try {
+    _cachedHistory = await getAllHistory();
+    updateTopbar(_cachedHistory.length);
+    if (_cachedHistory.length === 0){
+      $('latestBody').innerHTML =
+        '<tr><td colspan="5" style="color:#94a3b8;padding:14px;">暂无数据</td></tr>';
+      $('detailBody').innerHTML =
+        '<tr><td colspan="6" style="color:#94a3b8;padding:14px;">暂无数据</td></tr>';
+      return;
+    }
+    _cachedPreds = await getAllPredictions();
+    const predsByNbr = new Map(_cachedPreds.map(p => [String(p.nbr), p]));
+    const mode = _currentPairMode;
+    const { results, nextPred, newPreds } = walkForward(_cachedHistory, predsByNbr, mode);
+    if (newPreds.length > 0){
+      const added = await putManyPredictions(newPreds);
+      console.log(`[Refresh] 新增 ${added} 条预测快照`);
+      await trimPredictions(PRED_STORE_MAX);
+    }
+    _currentResults = results;
+    _currentNextPred = nextPred;
+    renderLatest(_cachedHistory);
+    renderPredict(nextPred);
+    renderDetail(results);
+    renderFreq(_cachedHistory);
+    requestAnimationFrame(() => drawDualChart($('chartHit'), results));
+  } catch (err){
+    console.error('[Refresh] 失败', err);
+  } finally {
+    _refreshing = false;
+  }
+}
+
+async function syncAndPredict(){
+  try {
+    const { records: remote, countdown } = await fetchFromAPI();
+    hideErr();
+    const added = await putManyHistory(remote);
+    if (added > 0) console.log(`[Sync] 新增 ${added} 期`);
+    await trimHistory(MAX_RECORDS);
+    if (countdown) $('countdown').textContent = countdown;
+    await refresh();
+  } catch (err){
+    console.error('[Sync] 失败', err);
+    showErr('接口异常，使用本地数据');
+    await refresh();
+  }
+}
+
+function startPolling(){
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(() => { syncAndPredict(); }, POLL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible'){
+      console.log('[Poll] 页面恢复可见，立即同步');
+      syncAndPredict();
+    }
+  });
+  console.log(`[Poll] 已启动，间隔 ${POLL_MS / 1000} 秒`);
+}
+
+/* ============================ H. 启动流程 ============================ */
+
+async function init(){
+  console.log('%cPC28 双轨预测系统 v14',
+              'color:#2563eb;font-size:15px;font-weight:700;');
+  console.log(`模型版本：${MODEL_VERSION}`);
+  console.log(`预热期：${MIN_T} 期`);
+  console.log('正在初始化…');
+  try {
+    await openDB();
+    const cnt = await countHistory();
+    console.log(`[Init] 本地记录 ${cnt} 期`);
+    if (cnt === 0){
+      console.log('[Init] 首次运行，从接口获取数据…');
+      try {
+        const { records, countdown } = await fetchFromAPI();
+        await putManyHistory(records);
+        if (countdown) $('countdown').textContent = countdown;
+        console.log(`[Init] 已写入 ${records.length} 期`);
+      } catch (err){
+        console.error('[Init] 接口失败', err);
+        showErr('接口异常，使用本地数据');
+      }
+    }
+    const savedMode = await getMeta('pairMode');
+    if (savedMode === 'top2' || savedMode === 'joint'){
+      _currentPairMode = savedMode;
+      document.querySelector(`input[name="pairMode"][value="${savedMode}"]`).checked = true;
+    }
+    await refresh();
+    startPolling();
+    setInterval(() => {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      $('clock').textContent =
+        `${pad(now.getMonth()+1)}-${pad(now.getDate())} ` +
+        `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    }, 1000);
+    console.log('[Init] 初始化完成');
+  } catch (err){
+    console.error('[Init] 致命错误', err);
+    showErr('初始化失败：' + err.message);
+  }
+}
+
+document.querySelectorAll('input[name="pairMode"]').forEach(radio => {
+  radio.addEventListener('change', async (e) => {
+    if (!e.target.checked) return;
+    const newMode = e.target.value;
+    if (newMode === _currentPairMode) return;
+    console.log(`[Mode] 切换双组模式：${_currentPairMode} → ${newMode}`);
+    _currentPairMode = newMode;
+    await setMeta('pairMode', newMode);
+    await refresh();
+  });
+});
+
+$('closeSnapshot').addEventListener('click', () => {
+  $('snapshotModal').classList.add('hidden');
+});
+$('snapshotModal').addEventListener('click', (e) => {
+  if (e.target === $('snapshotModal')){
+    $('snapshotModal').classList.add('hidden');
+  }
+});
+
+$('clearBtn').addEventListener('click', async () => {
+  if (!confirm('确定要清除本地数据（含历史与预测快照）并重新开始吗？')) return;
+  try {
+    await clearAll();
+    console.log('[Clear] 本地数据已清除');
+    _cachedHistory = [];
+    _cachedPreds = [];
+    _currentResults = [];
+    _currentNextPred = null;
+    try {
+      const { records, countdown } = await fetchFromAPI();
+      await putManyHistory(records);
+      if (countdown) $('countdown').textContent = countdown;
+      console.log(`[Clear] 重新写入 ${records.length} 期`);
+    } catch (err){
+      console.error('[Clear] 重新获取失败', err);
+      showErr('接口异常，请稍后重试');
+    }
+    await refresh();
+  } catch (err){
+    console.error('[Clear] 失败', err);
+    alert('清除失败：' + err.message);
+  }
+});
+
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => {
+    drawDualChart($('chartHit'), _currentResults);
+  }, 200);
+});
+
+init();
+
+console.log('%cPC28 双轨预测系统 v14',
+            'color:#2563eb;font-size:13px;font-weight:700;');
+console.log(`模型版本：${MODEL_VERSION}`);
+console.log('数据源：https://pc28.help/api/kj.json?nbr=80');
+console.log('存储：IndexedDB（history / predictions / meta）');
+console.log('算法：30 基学习器集成 + 双组配对联合（可选单组前二）');
+console.log('时间一致性：walk-forward，特征严格只用 cutoff 之前数据，快照不可修改');
+</script>
+</body>
+</html>
